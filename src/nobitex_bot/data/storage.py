@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol TEXT NOT NULL,
     strategy_name TEXT NOT NULL,
+    resolution TEXT NOT NULL DEFAULT '60',
     direction TEXT NOT NULL,
     entry_time INTEGER NOT NULL,
     entry_price TEXT NOT NULL,
@@ -212,16 +213,16 @@ class Storage:
     # ------------------------------------------------------------------
 
     def open_paper_trade(
-        self, symbol: str, strategy_name: str, direction: str, entry_time: int, entry_price: Decimal,
+        self, symbol: str, strategy_name: str, resolution: str, direction: str, entry_time: int, entry_price: Decimal,
         size_quote: Decimal, entry_reason: str, client_order_id: str | None = None,
     ) -> int:
         cursor = self._conn.execute(
             """
             INSERT INTO paper_trades
-                (symbol, strategy_name, direction, entry_time, entry_price, size_quote, entry_reason, client_order_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                (symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason, client_order_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
             """,
-            (symbol, strategy_name, direction, entry_time, str(entry_price), str(size_quote), entry_reason, client_order_id),
+            (symbol, strategy_name, resolution, direction, entry_time, str(entry_price), str(size_quote), entry_reason, client_order_id),
         )
         self._conn.commit()
         return cursor.lastrowid
@@ -240,18 +241,18 @@ class Storage:
         self._conn.commit()
 
     def get_open_paper_trades(self, symbol: str | None = None) -> list[dict]:
-        query = "SELECT id, symbol, strategy_name, direction, entry_time, entry_price, size_quote, entry_reason FROM paper_trades WHERE status = 'open'"
+        query = "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason FROM paper_trades WHERE status = 'open'"
         params: list[object] = []
         if symbol is not None:
             query += " AND symbol = ?"
             params.append(symbol)
         cursor = self._conn.execute(query, params)
-        keys = ["id", "symbol", "strategy_name", "direction", "entry_time", "entry_price", "size_quote", "entry_reason"]
+        keys = ["id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "size_quote", "entry_reason"]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
 
     def get_closed_paper_trades(self, strategy_name: str | None = None) -> list[dict]:
         query = (
-            "SELECT id, symbol, strategy_name, direction, entry_time, entry_price, exit_time, exit_price, "
+            "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, exit_time, exit_price, "
             "size_quote, fee_paid, pnl, entry_reason, exit_reason FROM paper_trades WHERE status = 'closed'"
         )
         params: list[object] = []
@@ -260,7 +261,7 @@ class Storage:
             params.append(strategy_name)
         cursor = self._conn.execute(query, params)
         keys = [
-            "id", "symbol", "strategy_name", "direction", "entry_time", "entry_price", "exit_time", "exit_price",
+            "id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "exit_time", "exit_price",
             "size_quote", "fee_paid", "pnl", "entry_reason", "exit_reason",
         ]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]

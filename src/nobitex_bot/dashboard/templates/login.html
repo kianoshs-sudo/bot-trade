@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}ورود{% endblock %}
+{% block content %}
+<div class="card" style="max-width:380px;margin:60px auto;">
+  <h2>ورود به داشبورد</h2>
+  {% if is_first_run %}
+  <p class="warn">اولین باره — هر رمزی که الان وارد کنید، «رمز اصلی» شما برای رمزنگاری کلیدها می‌شه. این رمز رو گم نکنید.</p>
+  {% endif %}
+  <form method="post">
+    <label>رمز اصلی</label>
+    <input type="password" name="password" autofocus required>
+    <button type="submit">ورود</button>
+  </form>
+</div>
+{% endblock %}

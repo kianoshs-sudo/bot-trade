@@ -27,13 +27,14 @@ def main() -> None:
         print("هنوز هیچ معاملهٔ بسته‌شده‌ای در Paper Trading ثبت نشده.")
         return
 
-    by_strategy: dict[str, list[dict]] = {}
+    by_track: dict[tuple[str, str], list[dict]] = {}
     for row in closed:
-        by_strategy.setdefault(row["strategy_name"], []).append(row)
+        key = (row["strategy_name"], row.get("resolution", "60"))
+        by_track.setdefault(key, []).append(row)
 
-    print(f"{'استراتژی':<28}{'معاملات':<10}{'Win Rate':<10}{'Net PnL':<15}")
-    print("-" * 63)
-    for strategy_name, rows in by_strategy.items():
+    print(f"{'استراتژی@تایم‌فریم':<32}{'معاملات':<10}{'Win Rate':<10}{'Net PnL':<15}")
+    print("-" * 67)
+    for (strategy_name, resolution), rows in sorted(by_track.items()):
         pnls = [float(Decimal(r["pnl"])) for r in rows if r["pnl"] is not None]
         equity_curve = []
         running = 0.0
@@ -45,7 +46,8 @@ def main() -> None:
         # Sharpe محاسبه‌شده کاملاً هم‌مقیاس بک‌تست نیست، فقط نرخ برد/PnL/Drawdown
         # قابل‌مقایسهٔ مستقیمن.
         metrics = compute_metrics(trade_results, equity_curve or [0.0], 0.0, sum(pnls), periods_per_year=365)
-        print(f"{strategy_name:<28}{len(rows):<10}{metrics.win_rate * 100:<10.1f}{sum(pnls):<15.0f}")
+        label = f"{strategy_name}@{resolution}"
+        print(f"{label:<32}{len(rows):<10}{metrics.win_rate * 100:<10.1f}{sum(pnls):<15.0f}")
 
     storage.close()
 

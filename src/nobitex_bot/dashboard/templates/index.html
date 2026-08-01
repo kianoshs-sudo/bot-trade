@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}وضعیت{% endblock %}
+{% block content %}
+<h2>وضعیت زندهٔ ترکیب‌های استراتژی/تایم‌فریم</h2>
+
+{% if not status %}
+<div class="card">هنوز هیچ عکس وضعیتی ثبت نشده — ربات (``run_paper_trading.py``) هنوز اجرا نشده یا هنوز اولین چرخه رو تموم نکرده.</div>
+{% else %}
+<p style="color:#888;font-size:13px;">آخرین به‌روزرسانی: {{ status.updated_at }}</p>
+<table>
+  <tr><th>ترکیب</th><th>سرمایهٔ مجازی</th><th>پوزیشن‌های باز</th><th>وضعیت</th></tr>
+  {% for t in status.tracks %}
+  <tr>
+    <td>{{ t.label }}</td>
+    <td>{{ t.capital }}</td>
+    <td>{{ t.open_positions }}</td>
+    <td>{% if t.daily_loss_halted %}<span class="halted">متوقف (حد ضرر روزانه)</span>{% else %}<span class="ok">فعال</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>آخرین تصمیم‌ها (علت‌یابی)</h2>
+{% if not decisions %}
+<div class="card">هنوز تصمیمی ثبت نشده.</div>
+{% else %}
+<table>
+  <tr><th>زمان</th><th>رویداد</th><th>نماد</th><th>استراتژی</th><th>دلیل</th></tr>
+  {% for d in decisions %}
+  <tr>
+    <td>{{ d.ts }}</td>
+    <td>{{ d.event_type }}</td>
+    <td>{{ d.symbol }}</td>
+    <td>{{ d.strategy_name }}</td>
+    <td>{{ d.reason }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

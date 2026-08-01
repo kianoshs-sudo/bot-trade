@@ -6,9 +6,27 @@
 env روی production باشه، بدون هیچ حرکتی خطا می‌ده — چون فاز ۷ (پول واقعی)
 هنوز نیازمند تایید صریح کاربره.
 
-هر چرخهٔ ``run_once`` باید periodically (هر چند دقیقه، هم‌سو با تایم‌فریم
-انتخابی) صدا زده بشه — نه پیوسته در یک حلقهٔ فشرده، چون هم به rate limit
-احترام می‌ذاره هم با تایم‌فریم ≥۵ دقیقهٔ پروژه سازگاره.
+هر چرخهٔ ``run_once`` باید periodically (هر چند دقیقه، هم‌سو با کوتاه‌ترین
+تایم‌فریم تست‌شده) صدا زده بشه — نه پیوسته در یک حلقهٔ فشرده.
+
+نکتهٔ مهم دربارهٔ ``market_data`` در برابر ``order_executor``: این دو باید
+از دو کلاینت *متفاوت* بسازن — ``market_data`` همیشه به بازار واقعی
+(endpointهای عمومی، بدون توکن، بدون ریسک) وصل بشه تا سیگنال‌ها و بررسی
+SL/TP بر اساس رفتار واقعی بازار باشن، نه دادهٔ Testnet که لزوماً همون
+رفتار رو نداره؛ فقط ``order_executor`` باید به Testnet وصل بشه (چون آنجا
+واقعاً سفارش ثبت می‌شه). به ``scripts/run_paper_trading.py`` نگاه کن.
+
+## حافظه + تست هم‌زمان چند استراتژی/تایم‌فریم
+
+هر ترکیب (استراتژی، تایم‌فریم) یک ``StrategyTrack`` مستقله — سرمایهٔ
+مجازی، مدیریت ریسک، و پوزیشن‌های باز خودش رو جدا نگه می‌داره (دقیقاً مثل
+اجرای موازی چند بک‌تست زنده). این‌طوری می‌شه مثلاً ``trend_momentum_volume``
+رو هم‌زمان روی ۱۵ دقیقه و ۴ ساعته تست کرد و بعداً از جدول ``paper_trades``
+(که resolution هم توش ذخیره می‌شه) مقایسه‌شون کرد — دقیقاً همون «حافظه»
+که هدف/نتیجهٔ هر معامله (خورد یا نه) رو نگه می‌داره. اسکن فرصت‌ها روی یک
+تایم‌فریم مرجع (resolution خودِ scanner) مشترکه تا API چندبار برای هر
+ترکیب صدا زده نشه؛ فقط دادهٔ کندل برای تولید سیگنال با resolution خودِ
+هر track جداگانه خونده می‌شه.
 """
 
 from __future__ import annotations
@@ -49,18 +67,33 @@ class OpenPosition:
 
 
 @dataclass
+class StrategyTrack:
+    """یک ترکیب مستقل (استراتژی + تایم‌فریم) با سرمایه/ریسک/پوزیشن‌های خودش —
+    برای تست هم‌زمان چند استراتژی در چند تایم‌فریم بدون تداخل حساب‌ها."""
+
+    strategy: Strategy
+    resolution: str
+    capital: Decimal
+    risk_manager: RiskManager = field(default_factory=RiskManager)
+    open_positions: dict[str, OpenPosition] = field(default_factory=dict)
+
+    @property
+    def label(self) -> str:
+        return f"{self.strategy.name}@{self.resolution}"
+
+
+@dataclass
 class PaperTradingRunner:
     settings: Settings
     market_data: MarketDataService
     scanner: MarketScanner
-    strategies: list[Strategy]
-    risk_manager: RiskManager
+    tracks: list[StrategyTrack]
     order_executor: OrderExecutor
     storage: Storage
     approval_gate: ApprovalGate
-    capital: Decimal
-    resolution: str = "60"
-    open_positions: dict[str, OpenPosition] = field(default_factory=dict)
+    decision_logger: object | None = None  # nobitex_bot.monitoring.decision_log.DecisionLogger
+    status_snapshot_path: object | None = None  # pathlib.Path
+    risk_config_path: object | None = None  # pathlib.Path — برای بازخوانی زندهٔ تنظیمات از داشبورد
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -70,23 +103,45 @@ class PaperTradingRunner:
             )
 
     def run_once(self) -> None:
-        self._check_exits()
+        self._reload_risk_config_if_configured()
 
-        if len(self.open_positions) >= self.risk_manager.config.max_concurrent_trades:
-            logger.info("تعداد پوزیشن‌های باز به سقف رسیده — اسکن فرصت جدید انجام نمی‌شه")
-            return
+        for track in self.tracks:
+            self._check_exits(track)
 
-        for opportunity in self.scanner.scan():
-            if opportunity.symbol in self.open_positions:
+        opportunities = self.scanner.scan()
+        for track in self.tracks:
+            if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
+                logger.info("[%s] تعداد پوزیشن‌های باز به سقف رسیده — اسکن جدید انجام نمی‌شه", track.label)
                 continue
-            if self._try_enter(opportunity.symbol):
-                if len(self.open_positions) >= self.risk_manager.config.max_concurrent_trades:
-                    break
+            for opportunity in opportunities:
+                if opportunity.symbol in track.open_positions:
+                    continue
+                if self._try_enter(track, opportunity.symbol):
+                    if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
+                        break
 
-    def _try_enter(self, symbol: str) -> bool:
+        self._write_status_snapshot_if_configured()
+
+    def _reload_risk_config_if_configured(self) -> None:
+        if self.risk_config_path is None:
+            return
+        from nobitex_bot.risk.config_store import load_risk_config
+
+        new_config = load_risk_config(self.risk_config_path)
+        for track in self.tracks:
+            track.risk_manager.config = new_config
+
+    def _write_status_snapshot_if_configured(self) -> None:
+        if self.status_snapshot_path is None:
+            return
+        from nobitex_bot.monitoring.status_snapshot import write_status_snapshot
+
+        write_status_snapshot(self.status_snapshot_path, self.tracks)
+
+    def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
         now = int(time.time())
-        span_seconds = 200 * 3600  # تقریبی، کافی برای اندیکاتورها؛ scanner از تنظیمات خودش استفاده می‌کنه
-        candles = self.market_data.get_ohlc_history(symbol, self.resolution, now - span_seconds, now)
+        span_seconds = 200 * 3600
+        candles = self.market_data.get_ohlc_history(symbol, track.resolution, now - span_seconds, now)
         if len(candles) < MIN_CANDLES_FOR_INDICATORS:
             return False
         df = compute_indicators(candles_to_dataframe(candles))
@@ -96,26 +151,30 @@ class PaperTradingRunner:
         if market_price is None:
             return False
 
-        for strategy in self.strategies:
-            signal = strategy.generate_entry_signal(df, symbol)
-            if signal is None:
-                continue
+        signal = track.strategy.generate_entry_signal(df, symbol)
+        if signal is None:
+            return False
 
-            decision = self.risk_manager.evaluate(signal, self.capital, market_price, len(self.open_positions))
-            if not decision.approved:
-                logger.info("سیگنال %s/%s رد شد توسط مدیریت ریسک: %s", symbol, strategy.name, decision.reason)
-                continue
+        if self.decision_logger is not None:
+            self.decision_logger.log("entry_signal", symbol, track.strategy.name, signal.reason)
 
-            if not self.approval_gate.request_approval(signal, decision.position_size_quote):
-                logger.info("سیگنال %s/%s توسط کاربر رد شد", symbol, strategy.name)
-                continue
+        decision = track.risk_manager.evaluate(signal, track.capital, market_price, len(track.open_positions))
+        if not decision.approved:
+            logger.info("[%s] سیگنال %s رد شد توسط مدیریت ریسک: %s", track.label, symbol, decision.reason)
+            if self.decision_logger is not None:
+                self.decision_logger.log("risk_rejected", symbol, track.strategy.name, decision.reason)
+            return False
 
-            self._open_position(signal, decision.position_size_quote, strategy.name)
-            return True
+        if not self.approval_gate.request_approval(signal, decision.position_size_quote):
+            logger.info("[%s] سیگنال %s توسط کاربر رد شد", track.label, symbol)
+            if self.decision_logger is not None:
+                self.decision_logger.log("approval_rejected", symbol, track.strategy.name, "کاربر تایید نکرد")
+            return False
 
-        return False
+        self._open_position(track, signal, decision.position_size_quote)
+        return True
 
-    def _open_position(self, signal, size_quote: Decimal, strategy_name: str) -> None:
+    def _open_position(self, track: StrategyTrack, signal, size_quote: Decimal) -> None:
         amount = size_quote / signal.entry_price_hint
 
         self.order_executor.submit_order(signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint)
@@ -131,24 +190,29 @@ class PaperTradingRunner:
         )
 
         trade_id = self.storage.open_paper_trade(
-            signal.symbol, strategy_name, signal.direction, int(time.time()), signal.entry_price_hint,
-            size_quote, signal.reason,
+            signal.symbol, track.strategy.name, track.resolution, signal.direction, int(time.time()),
+            signal.entry_price_hint, size_quote, signal.reason,
         )
-        self.open_positions[signal.symbol] = OpenPosition(
+        track.open_positions[signal.symbol] = OpenPosition(
             trade_id=trade_id,
             symbol=signal.symbol,
-            strategy_name=strategy_name,
+            strategy_name=track.strategy.name,
             direction=signal.direction,
             entry_price=signal.entry_price_hint,
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
             size_quote=size_quote,
         )
-        logger.info("پوزیشن جدید باز شد: %s (%s) اندازه=%s", signal.symbol, strategy_name, size_quote)
+        logger.info("[%s] پوزیشن جدید باز شد: %s اندازه=%s", track.label, signal.symbol, size_quote)
+        if self.decision_logger is not None:
+            self.decision_logger.log(
+                "position_opened", signal.symbol, track.strategy.name, signal.reason,
+                details={"entry_price": str(signal.entry_price_hint), "stop_loss": str(signal.stop_loss), "take_profit": str(signal.take_profit)},
+            )
 
-    def _check_exits(self) -> None:
+    def _check_exits(self, track: StrategyTrack) -> None:
         stats = self.market_data.get_all_market_stats()
-        for symbol, position in list(self.open_positions.items()):
+        for symbol, position in list(track.open_positions.items()):
             current_price = stats.get(symbol).latest if symbol in stats else None
             if current_price is None:
                 continue
@@ -161,9 +225,9 @@ class PaperTradingRunner:
 
             exit_price = position.stop_loss if hit_sl else position.take_profit
             exit_reason = "برخورد Stop Loss (OCO)" if hit_sl else "برخورد Take Profit (OCO)"
-            self._close_position(position, exit_price, exit_reason)
+            self._close_position(track, position, exit_price, exit_reason)
 
-    def _close_position(self, position: OpenPosition, exit_price: Decimal, exit_reason: str) -> None:
+    def _close_position(self, track: StrategyTrack, position: OpenPosition, exit_price: Decimal, exit_reason: str) -> None:
         if position.direction == "buy":
             gross_pnl = (exit_price - position.entry_price) / position.entry_price * position.size_quote
         else:
@@ -173,7 +237,12 @@ class PaperTradingRunner:
         net_pnl = gross_pnl - fee
 
         self.storage.close_paper_trade(position.trade_id, int(time.time()), exit_price, fee, net_pnl, exit_reason)
-        self.risk_manager.record_closed_trade(net_pnl)
-        self.capital += net_pnl
-        del self.open_positions[position.symbol]
-        logger.info("پوزیشن %s بسته شد: %s (pnl=%s)", position.symbol, exit_reason, net_pnl)
+        track.risk_manager.record_closed_trade(net_pnl)
+        track.capital += net_pnl
+        del track.open_positions[position.symbol]
+        logger.info("[%s] پوزیشن %s بسته شد: %s (pnl=%s)", track.label, position.symbol, exit_reason, net_pnl)
+        if self.decision_logger is not None:
+            self.decision_logger.log(
+                "position_closed", position.symbol, track.strategy.name, exit_reason,
+                details={"exit_price": str(exit_price), "pnl": str(net_pnl)},
+            )

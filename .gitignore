@@ -5,6 +5,11 @@ __pycache__/
 venv/
 data/*.sqlite
 data/*.sqlite-journal
+data/secrets.enc
+data/secrets.salt
+data/risk_config.json
+data/status.json
+data/decisions.jsonl
 *.log
 .pytest_cache/
 .mypy_cache/

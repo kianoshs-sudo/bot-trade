@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>{% block title %}داشبورد ربات نوبیتکس{% endblock %}</title>
+  <style>
+    body { font-family: Tahoma, Vazirmatn, sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; }
+    nav { background: #171a21; padding: 12px 24px; display: flex; gap: 20px; align-items: center; }
+    nav a { color: #cfd3da; text-decoration: none; }
+    nav a:hover { color: #4fc3f7; }
+    main { padding: 24px; max-width: 1000px; margin: 0 auto; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 24px; }
+    th, td { border: 1px solid #2a2e37; padding: 8px 10px; text-align: right; font-size: 14px; }
+    th { background: #1c1f27; }
+    .card { background: #171a21; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .flash { background: #2d3a1f; border: 1px solid #4a6b2a; padding: 10px; border-radius: 6px; margin-bottom: 16px; }
+    .halted { color: #ff6b6b; font-weight: bold; }
+    .ok { color: #6bcf6b; }
+    label { display: block; margin: 10px 0 4px; }
+    input[type=text], input[type=password], input[type=number] {
+      width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #2a2e37; background: #0f1115; color: #eee; box-sizing: border-box;
+    }
+    button { margin-top: 14px; padding: 8px 18px; border-radius: 4px; border: none; background: #2f6fed; color: white; cursor: pointer; }
+    .warn { color: #ffb347; font-size: 13px; }
+  </style>
+</head>
+<body>
+  {% if session.get('master_password') %}
+  <nav>
+    <a href="{{ url_for('index') }}">وضعیت</a>
+    <a href="{{ url_for('trades') }}">معاملات</a>
+    <a href="{{ url_for('settings_view') }}">تنظیمات</a>
+    <span style="flex:1"></span>
+    <a href="{{ url_for('logout') }}">خروج</a>
+  </nav>
+  {% endif %}
+  <main>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}{% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}{% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

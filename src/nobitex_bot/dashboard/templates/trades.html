@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}معاملات{% endblock %}
+{% block content %}
+<h2>پوزیشن‌های باز</h2>
+{% if not open_trades %}
+<div class="card">پوزیشن باز فعلاً نیست.</div>
+{% else %}
+<table>
+  <tr><th>نماد</th><th>استراتژی</th><th>تایم‌فریم</th><th>جهت</th><th>قیمت ورود</th><th>اندازه</th><th>دلیل ورود</th></tr>
+  {% for t in open_trades %}
+  <tr>
+    <td>{{ t.symbol }}</td><td>{{ t.strategy_name }}</td><td>{{ t.resolution }}</td>
+    <td>{{ t.direction }}</td><td>{{ t.entry_price }}</td><td>{{ t.size_quote }}</td><td>{{ t.entry_reason }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<h2>تاریخچهٔ معاملات بسته‌شده</h2>
+{% if not closed_trades %}
+<div class="card">هنوز معامله‌ای بسته نشده.</div>
+{% else %}
+<table>
+  <tr><th>نماد</th><th>استراتژی</th><th>تایم‌فریم</th><th>جهت</th><th>ورود</th><th>خروج</th><th>PnL</th><th>دلیل خروج</th></tr>
+  {% for t in closed_trades %}
+  <tr>
+    <td>{{ t.symbol }}</td><td>{{ t.strategy_name }}</td><td>{{ t.resolution }}</td>
+    <td>{{ t.direction }}</td><td>{{ t.entry_price }}</td><td>{{ t.exit_price }}</td>
+    {% if t.pnl and t.pnl.startswith('-') %}
+    <td style="color:#ff6b6b">{{ t.pnl }}</td>
+    {% else %}
+    <td style="color:#6bcf6b">{{ t.pnl }}</td>
+    {% endif %}
+    <td>{{ t.exit_reason }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

@@ -54,8 +54,14 @@ class NobitexClient:
         rate_limiter: RateLimiter | None = None,
         session: requests.Session | None = None,
         max_retries: int = 5,
+        base_url: str | None = None,
     ) -> None:
+        """``base_url`` رو صریح بده تا این کلاینت مستقل از ``NOBITEX_ENV``
+        همیشه یک محیط مشخص (مثلاً همیشه بازار واقعی برای دادهٔ قیمت، حتی
+        وقتی سفارش‌ها روی Testnet ثبت می‌شن) رو صدا بزنه. اگه خالی بمونه،
+        طبق ``NOBITEX_ENV`` انتخاب می‌شه (رفتار قبلی)."""
         self.settings = settings or get_settings()
+        self._base_url = base_url or self.settings.base_url
         self.session = session or requests.Session()
         self.rate_limiter = rate_limiter or RateLimiter()
         for name, (max_calls, period) in RATE_LIMITS.items():
@@ -81,7 +87,7 @@ class NobitexClient:
             )
 
         path = endpoint.path.format(**(path_params or {}))
-        url = f"{self.settings.base_url}{path}"
+        url = f"{self._base_url}{path}"
 
         attempt = 0
         while True:
