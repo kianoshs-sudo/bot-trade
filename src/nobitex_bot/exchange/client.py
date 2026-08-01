@@ -22,6 +22,11 @@ from nobitex_bot.exchange.endpoints import (
     MARKET_STATS,
     MINUTE_CANDLE_EPOCH_START,
     ORDERBOOK_V3,
+    ORDERS_ADD,
+    ORDERS_CANCEL_OLD,
+    ORDERS_LIST,
+    ORDERS_STATUS,
+    ORDERS_UPDATE_STATUS,
     RATE_LIMITS,
     UDF_HISTORY,
     USER_TRADES_LIST,
@@ -206,3 +211,70 @@ class NobitexClient:
         """معاملات ۳ روز اخیر کاربر (نیاز به توکن)."""
         data = self._request(USER_TRADES_LIST)
         return data.get("trades", [])
+
+    # ------------------------------------------------------------------
+    # فاز ۶/۷ — ثبت و مدیریت سفارش (نیاز به توکن، فقط روی Testnet تا فاز ۷)
+    #
+    # ⚠️ فقط خلاصهٔ prompt در دسترس بوده، نه schema کامل رسمی این endpointها.
+    # نام فیلدهای body زیر بر اساس رایج‌ترین قرارداد شناخته‌شدهٔ API نوبیتکس
+    # ساخته شدن، ولی قبل از فاز ۶ (تست واقعی روی Testnet) حتماً باید در برابر
+    # پاسخ واقعی verify بشن. ``extra_params`` برای فیلدهای اختصاصی OCO/stop
+    # (مثل stopPrice, mode) که در خلاصهٔ prompt جزئیاتشون نیومده، در نظر
+    # گرفته شده تا اصلاح احتمالی بدون تغییر امضای تابع ممکن باشه.
+    # ------------------------------------------------------------------
+
+    def place_order(
+        self,
+        symbol: str,
+        side: str,
+        order_type: str,
+        amount: Decimal,
+        price: Decimal | None = None,
+        client_order_id: str | None = None,
+        extra_params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """ثبت سفارش. amount/price طبق الزام پروژه به‌صورت رشته ارسال می‌شن.
+
+        side: "buy" | "sell"
+        order_type: "limit" | "market" | "stop_limit" | "stop_market" | "oco"
+        """
+        body: dict[str, Any] = {
+            "type": side,
+            "execution": order_type,
+            "symbol": symbol,
+            "amount": str(amount),
+        }
+        if price is not None:
+            body["price"] = str(price)
+        if client_order_id is not None:
+            body["clientOrderId"] = client_order_id
+        if extra_params:
+            body.update({k: (str(v) if isinstance(v, Decimal) else v) for k, v in extra_params.items()})
+        return self._request(ORDERS_ADD, json_body=body)
+
+    def get_order_status(self, order_id: int | None = None, client_order_id: str | None = None) -> dict[str, Any]:
+        if order_id is None and client_order_id is None:
+            raise ValueError("باید order_id یا client_order_id مشخص بشه")
+        body: dict[str, Any] = {}
+        if order_id is not None:
+            body["id"] = order_id
+        if client_order_id is not None:
+            body["clientOrderId"] = client_order_id
+        return self._request(ORDERS_STATUS, json_body=body)
+
+    def cancel_order(self, order_id: int | None = None, client_order_id: str | None = None) -> dict[str, Any]:
+        if order_id is None and client_order_id is None:
+            raise ValueError("باید order_id یا client_order_id مشخص بشه")
+        body: dict[str, Any] = {"status": "canceled"}
+        if order_id is not None:
+            body["order"] = order_id
+        if client_order_id is not None:
+            body["clientOrderId"] = client_order_id
+        return self._request(ORDERS_UPDATE_STATUS, json_body=body)
+
+    def cancel_old_orders(self, **filters: Any) -> dict[str, Any]:
+        """لغو دسته‌جمعی سفارش‌های فعال — برای پاک‌سازی اضطراری سفارش‌های معلق."""
+        return self._request(ORDERS_CANCEL_OLD, json_body=filters or None)
+
+    def list_orders(self, **filters: Any) -> dict[str, Any]:
+        return self._request(ORDERS_LIST, params=filters or None)

@@ -12,7 +12,7 @@
 | ۳ — استراتژی‌های ترکیبی | ✅ انجام شد |
 | ۴ — بک‌تست | ✅ انجام شد |
 | ۵ — مدیریت ریسک | ✅ انجام شد |
-| ۶ — Paper Trading (Testnet) | ⏳ |
+| ۶ — Paper Trading (Testnet) | ✅ کد آماده — تست زنده روی Testnet نیازمند اجرا بیرون این محیط |
 | ۷ — اجرای واقعی | 🔒 نیازمند تایید صریح کاربر |
 | ۸ — لاگ‌گیری و داشبورد | ⏳ |
 
@@ -88,6 +88,26 @@ python scripts/run_backtest.py --symbols BTCIRT,ETHIRT,USDTIRT --resolution 60
 
 هر SL/TP از قبل در `TradeSignal` (فاز ۳) اجباریه — این فیلدها اختیاری نیستن، پس این‌جا دوباره enforce نمی‌شه.
 
+## Paper Trading روی Testnet (فاز ۶)
+
+```bash
+# .env: NOBITEX_ENV=testnet و NOBITEX_API_TOKEN=<توکن Testnet>
+python scripts/run_paper_trading.py --resolution 60 --interval-minutes 15 --approval manual
+```
+
+جریان کامل: اسکن بازارها → سیگنال استراتژی → دروازهٔ مدیریت ریسک (فاز ۵) → **تاییدیهٔ دستی در ترمینال** (پیش‌فرض، چون بله/تلگرام هنوز فاز ۸ نساخته شده) → ثبت سفارش ورود + سفارش OCO خروج روی Testnet → ثبت نتیجه در `data/paper_trading.sqlite`.
+
+```bash
+python scripts/paper_trading_report.py   # گزارش PnL/Win Rate هر استراتژی، قابل‌مقایسه با گزارش بک‌تست
+```
+
+### نکات ایمنی و محدودیت‌های مهم فاز ۶
+
+- ⚠️ **`PaperTradingRunner` عمداً اگه `NOBITEX_ENV` روی `production` باشه، قبل از هر کاری خطا می‌ده و متوقف می‌شه** — فاز ۷ (پول واقعی) هنوز نیاز به تایید صریح شما داره و از این runner جدا خواهد بود.
+- **idempotency سفارش**: هر سفارش قبل از ارسال با یک `clientOrderId` تازه در جدول `order_intents` به‌عنوان `pending` ثبت می‌شه (`src/nobitex_bot/execution/order_executor.py`). اگه پاسخ صرافی `DuplicateOrder` باشه (یعنی تلاش قبلی به‌خاطر قطعی شبکه واقعاً ثبت شده بوده)، به‌جای ارسال دوباره، وضعیت واقعی از صرافی استعلام می‌شه — درسی که مستقیم از باگ‌های فاز ۰ (freqtrade/duplicate order) گرفته شد.
+- ⚠️ **این محیط sandbox به `api.nobitex.ir`/`testnetapiv2.nobitex.ir` دسترسی شبکه نداره** (پراکسی محیط 403 می‌ده)، پس امکان تست زندهٔ واقعی از همین‌جا نبود. کل منطق با ۵۷ یونیت‌تست mock/synthetic تایید شده، ولی **schema دقیق body سفارش‌ها (به‌خصوص فیلدهای OCO مثل `stopPrice`) در `exchange/client.py::place_order` بر پایهٔ رایج‌ترین قرارداد شناخته‌شدهٔ نوبیتکس حدس زده شده، نه از مستندات کامل رسمی.** لطفاً این اسکریپت رو روی سیستم/VPS خودتون (با توکن Testnet از testnet.nobitex.ir) اجرا کنید؛ اگه پاسخ صرافی خطای فرمت داد (مثلاً `InvalidOrderPrice` یا فیلد ناشناخته)، فقط کافیه `place_order` در `exchange/client.py` رو با فرمت واقعی اصلاح کنید — بقیهٔ کد به این جزئیات وابسته نیست.
+- طبق سند پروژه، Paper Trading باید **حداقل چند روز/هفته** قبل از فاز ۷ ادامه پیدا کنه تا نتایج قابل‌اتکا باشن.
+
 ## تصمیمات معماری برای فازهای بعدی
 
 - **حالت اجرا (فاز ۷): نیمه‌خودکار.** ربات سیگنال تایید‌شده توسط مدیریت ریسک رو به‌جای ثبت خودکار، از طریق بله/تلگرام با دکمه‌های «تایید ✅ / رد ❌» می‌فرسته و فقط با تایید کاربر سفارش واقعی ثبت می‌شه. حالت کاملاً خودکار هم به‌صورت قابل‌تنظیم در نظر گرفته می‌شه.
@@ -124,11 +144,18 @@ src/nobitex_bot/
 ├── risk/
 │   ├── position_sizing.py    # فرمول ریسک-محور مشترک بین بک‌تست و اجرای زنده
 │   └── risk_manager.py        # دروازهٔ اصلی ریسک (ضرر روزانه، معاملات هم‌زمان، BadPrice، SmallOrder)
+├── execution/
+│   └── order_executor.py     # ثبت سفارش با idempotency (clientOrderId) و reconcile روی DuplicateOrder
+├── paper_trading/
+│   ├── approval.py            # دروازهٔ تاییدیه (نیمه‌خودکار)؛ AutoApprove/ManualCLI تا بله/تلگرام در فاز ۸
+│   └── runner.py               # ارکستراسیون کامل Paper Trading (فقط روی testnet)
 └── utils/logging.py
 scripts/
 ├── fetch_historical.py     # CLI دانلود دادهٔ تاریخی
 ├── scan_markets.py          # CLI اسکن و رتبه‌بندی بازارها
-└── run_backtest.py          # CLI بک‌تست مقایسه‌ای
+├── run_backtest.py          # CLI بک‌تست مقایسه‌ای
+├── run_paper_trading.py     # CLI اجرای Paper Trading روی Testnet
+└── paper_trading_report.py  # گزارش عملکرد Paper Trading
 tests/                       # یونیت‌تست (mock/synthetic — بدون نیاز به اتصال شبکه)
 ```
 
