@@ -96,5 +96,19 @@ MINUTE_CANDLE_EPOCH_START = 1647817200  # 1401-01-01 (تقریبی، UTC+3:30)
 MIN_ORDER_VALUE_RLS = 3_000_000
 MIN_ORDER_VALUE_TETHER = 11
 
+
+def min_order_value_for_symbol(symbol: str) -> int:
+    """حداقل ارزش معامله بر اساس ارز مقصد نماد (بازار ریالی یا تتری).
+
+    ⚠️ فرمت symbol بین endpointهای مختلف نوبیتکس یکسان نیست (مثلاً
+    ``BTCIRT`` در udf/history در برابر ``btc-rls`` در market/stats) — این
+    تابع پسوند رایج‌ترین قالب‌ها رو پوشش می‌ده؛ قبل از فاز ۷ حتماً روی
+    نمادهای واقعی verify بشه.
+    """
+    upper = symbol.upper().replace("-", "").replace("_", "")
+    if upper.endswith("USDT") or upper.endswith("TETHER"):
+        return MIN_ORDER_VALUE_TETHER
+    return MIN_ORDER_VALUE_RLS
+
 # قید محدودهٔ قیمت (خطای BadPrice)
 MAX_PRICE_DEVIATION_RATIO = 0.30
