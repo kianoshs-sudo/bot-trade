@@ -27,6 +27,7 @@ from nobitex_bot.analysis.indicators import MIN_CANDLES_FOR_INDICATORS, candles_
 from nobitex_bot.backtest.metrics import BacktestMetrics, TradeResult, compute_metrics
 from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, min_order_value_for_symbol
 from nobitex_bot.exchange.models import Candle
+from nobitex_bot.risk.position_sizing import calculate_position_size
 from nobitex_bot.strategies.base import Strategy
 
 logger = logging.getLogger(__name__)
@@ -150,15 +151,9 @@ class BacktestEngine:
         )
 
     def _position_size(self, capital: Decimal, entry_price: Decimal, stop_loss: Decimal) -> Decimal:
-        """اندازهٔ پوزیشن بر اساس درصد ریسک ثابت از سرمایه (نه مقدار ثابت) —
-        طبق فاصلهٔ SL از قیمت ورود. این نسخهٔ ساده‌شدهٔ منطق فاز ۵ است؛ فاز ۵
-        قیدهای بیشتری (ضرر روزانه، تعداد معاملات هم‌زمان) روش اضافه می‌کنه."""
-        price_risk = abs(entry_price - stop_loss)
-        if price_risk == 0:
-            return Decimal("0")
-        risk_amount = capital * self.config.risk_per_trade_pct
-        units = risk_amount / price_risk
-        return units * entry_price
+        """همون فرمول ریسک-محور فاز ۵ (`risk.position_sizing`) — استفادهٔ مشترک
+        بین بک‌تست و اجرای زنده تا منطق سایز پوزیشن جایی دو بار پیاده نشه."""
+        return calculate_position_size(capital, self.config.risk_per_trade_pct, entry_price, stop_loss)
 
     def _check_exit(
         self, position: dict, candle: pd.Series, window: pd.DataFrame, strategy: Strategy
