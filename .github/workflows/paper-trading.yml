@@ -1,0 +1,90 @@
+name: Paper Trading (Testnet)
+
+# این workflow هر ۱۵ دقیقه یک چرخهٔ کامل Paper Trading (اسکن -> سیگنال -> ریسک ->
+# تاییدیهٔ بله/تلگرام -> ثبت سفارش روی Testnet نوبیتکس) رو اجرا می‌کنه، بدون
+# نیاز به هیچ سرور شخصی. حافظهٔ ربات (وضعیت پوزیشن‌ها، لاگ تصمیم‌ها) توی یک
+# شاخهٔ مخصوص به اسم paper-trading-state ذخیره می‌شه — می‌تونید همون‌جا مستقیم
+# توی گیت‌هاب ببینیدش.
+#
+# ⚠️ مهم: از داشبورد/کلید رمزنگاری‌شدهٔ محلی برای این حالت استفاده نکنید —
+# فقط از GitHub Secrets (که این فایل ازش می‌خونه). چیزی که توی شاخهٔ
+# paper-trading-state ذخیره می‌شه برای هرکسی که به این ریپو دسترسی داره قابل
+# دیدنه، پس هیچ کلید/توکن نباید اونجا بره.
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "*/15 * * * *"
+
+concurrency:
+  group: paper-trading
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  run-one-cycle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout کد ربات
+        uses: actions/checkout@v4
+
+      - name: نصب Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: نصب وابستگی‌ها
+        run: pip install -r requirements.txt
+
+      - name: بازیابی حافظهٔ قبلی ربات (اگه وجود داشته باشه)
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin paper-trading-state >/dev/null 2>&1; then
+            git clone --depth 1 --branch paper-trading-state --single-branch \
+              "https://github.com/${{ github.repository }}.git" data_checkout
+            rm -rf data_checkout/.git
+            cp -r data_checkout/. data/
+            rm -rf data_checkout
+            echo "حافظهٔ قبلی بازیابی شد."
+          else
+            echo "اولین اجراست — حافظه‌ای برای بازیابی نیست."
+          fi
+
+      - name: اجرای یک چرخهٔ Paper Trading
+        env:
+          NOBITEX_ENV: testnet
+          NOBITEX_DATA_DIR: data
+          NOBITEX_API_TOKEN: ${{ secrets.NOBITEX_TESTNET_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_BOT_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+        run: |
+          python scripts/run_paper_trading.py \
+            --resolutions 15,60,240 \
+            --scan-resolution 60 \
+            --approval messaging \
+            --once
+
+      - name: ذخیرهٔ حافظهٔ جدید ربات (شاخهٔ paper-trading-state)
+        run: |
+          cd data
+          rm -rf .git
+          git init -q
+          git checkout -q -B paper-trading-state
+          git config user.name "nobitex-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "state update $(date -u +%Y-%m-%dT%H:%M:%SZ)" || echo "تغییری برای commit نبود"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" HEAD:paper-trading-state
+
+      - name: آپلود وضعیت به‌عنوان خروجی این اجرا (برای دیدن راحت‌تر)
+        uses: actions/upload-artifact@v4
+        with:
+          name: paper-trading-status
+          path: |
+            data/status.json
+            data/decisions.jsonl
+          retention-days: 14

@@ -32,7 +32,11 @@ from nobitex_bot.exchange.client import NobitexClient
 from nobitex_bot.exchange.endpoints import ALLOWED_RESOLUTIONS
 from nobitex_bot.execution.order_executor import OrderExecutor
 from nobitex_bot.monitoring.decision_log import DecisionLogger
+from nobitex_bot.notifications.bale import BaleNotifier
+from nobitex_bot.notifications.composite import CompositeNotifier
+from nobitex_bot.notifications.telegram import TelegramNotifier
 from nobitex_bot.paper_trading.approval import AutoApproveGate, ManualCLIApprovalGate
+from nobitex_bot.paper_trading.messaging_approval import MessagingApprovalGate
 from nobitex_bot.paper_trading.runner import PaperTradingRunner, StrategyTrack
 from nobitex_bot.risk.config_store import load_risk_config
 from nobitex_bot.risk.risk_manager import RiskManager
@@ -53,8 +57,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument("--initial-capital", type=float, default=10_000_000, help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم")
     parser.add_argument(
-        "--approval", choices=["manual", "auto"], default="manual",
-        help="manual=تایید دستی در ترمینال (پیش‌فرض، تا بله/تلگرام در فاز ۸ وصل بشه)؛ auto فقط برای تست",
+        "--approval", choices=["manual", "auto", "messaging"], default="manual",
+        help="manual=تایید دستی در ترمینال؛ messaging=بله/تلگرام؛ auto فقط برای تست",
+    )
+    parser.add_argument(
+        "--once", action="store_true",
+        help="فقط یک چرخه اجرا کن و خارج شو (برای GitHub Actions یا هر cron دیگه) — بدون این فلگ، حلقهٔ بی‌نهایت با --interval-minutes اجرا می‌شه",
     )
     return parser.parse_args()
 
@@ -74,24 +82,33 @@ def main() -> None:
             logger.error("تایم‌فریم نامعتبر: %s", r)
             sys.exit(1)
 
-    # توکن API رو یا از .env (NOBITEX_API_TOKEN) یا از فایل رمزنگاری‌شدهٔ داشبورد
-    # (secrets.enc، فاز ۸) بخون — دومی نیاز به NOBITEX_MASTER_PASSWORD در env داره
-    # چون این اسکریپت (برخلاف داشبورد) رمز رو از session نمی‌گیره.
-    if not settings.api_token:
-        secrets_path = settings.data_dir / "secrets.enc"
-        master_password = os.environ.get("NOBITEX_MASTER_PASSWORD")
+    secrets_path = settings.data_dir / "secrets.enc"
+    master_password = os.environ.get("NOBITEX_MASTER_PASSWORD")
+
+    def _get_secret(name: str, env_var: str) -> str | None:
+        """اول env var مستقیم (مثلاً GitHub Secret) رو چک می‌کنه، بعد فایل
+        رمزنگاری‌شدهٔ داشبورد رو (اگه NOBITEX_MASTER_PASSWORD تنظیم شده باشه)."""
+        value = os.environ.get(env_var)
+        if value:
+            return value
         if secrets_path.exists() and master_password:
             try:
-                token = SecretStore(secrets_path, master_password).get_secret("nobitex_api_token")
+                return SecretStore(secrets_path, master_password).get_secret(name)
             except WrongMasterPasswordError:
                 logger.error("NOBITEX_MASTER_PASSWORD اشتباهه — secrets.enc باز نشد")
                 sys.exit(1)
-            if token:
-                settings = replace(settings, api_token=token)
+        return None
+
+    # توکن API رو یا از .env/GitHub Secret (NOBITEX_API_TOKEN) یا از فایل
+    # رمزنگاری‌شدهٔ داشبورد (فاز ۸) بخون.
+    if not settings.api_token:
+        token = _get_secret("nobitex_api_token", "NOBITEX_API_TOKEN")
+        if token:
+            settings = replace(settings, api_token=token)
         if not settings.api_token:
             logger.error(
-                "NOBITEX_API_TOKEN تنظیم نشده — یا در .env بذارش، یا از داشبورد "
-                "(صفحهٔ تنظیمات) ذخیره کن و NOBITEX_MASTER_PASSWORD رو در .env بده"
+                "NOBITEX_API_TOKEN تنظیم نشده — یا در .env/GitHub Secret بذارش، یا از داشبورد "
+                "(صفحهٔ تنظیمات) ذخیره کن و NOBITEX_MASTER_PASSWORD رو بده"
             )
             sys.exit(1)
 
@@ -106,7 +123,25 @@ def main() -> None:
     market_data = MarketDataService(client=market_client, storage=storage)
     scanner = MarketScanner(market_data=market_data, resolution=args.scan_resolution)
     order_executor = OrderExecutor(client=trading_client, storage=storage)
-    approval_gate = ManualCLIApprovalGate() if args.approval == "manual" else AutoApproveGate()
+
+    if args.approval == "manual":
+        approval_gate = ManualCLIApprovalGate()
+    elif args.approval == "auto":
+        approval_gate = AutoApproveGate()
+    else:  # messaging — بله/تلگرام (هر کدوم که تنظیم شده باشه، هر دو هم می‌تونن هم‌زمان فعال باشن)
+        notifiers = []
+        telegram_token = _get_secret("telegram_token", "TELEGRAM_BOT_TOKEN")
+        telegram_chat_id = _get_secret("telegram_chat_id", "TELEGRAM_CHAT_ID")
+        if telegram_token and telegram_chat_id:
+            notifiers.append(TelegramNotifier(token=telegram_token, chat_id=telegram_chat_id))
+        bale_token = _get_secret("bale_token", "BALE_BOT_TOKEN")
+        bale_chat_id = _get_secret("bale_chat_id", "BALE_CHAT_ID")
+        if bale_token and bale_chat_id:
+            notifiers.append(BaleNotifier(token=bale_token, chat_id=bale_chat_id))
+        if not notifiers:
+            logger.error("هیچ توکن تلگرام/بله تنظیم نشده — از داشبورد یا GitHub Secrets تنظیمشون کن")
+            sys.exit(1)
+        approval_gate = MessagingApprovalGate(notifier=CompositeNotifier(notifiers))
 
     # اگه از داشبورد (فاز ۸) تنظیمات ریسک ذخیره شده باشه، همون جایگزین پیش‌فرض می‌شه
     initial_risk_config = load_risk_config(settings.data_dir / "risk_config.json")
@@ -134,6 +169,12 @@ def main() -> None:
         status_snapshot_path=settings.data_dir / "status.json",
         risk_config_path=settings.data_dir / "risk_config.json",
     )
+
+    if args.once:
+        logger.info("اجرای یک چرخه (--once) — برای GitHub Actions/cron")
+        runner.run_once()
+        storage.close()
+        return
 
     logger.info("شروع Paper Trading روی Testnet — هر %d دقیقه یک چرخه", args.interval_minutes)
     try:
