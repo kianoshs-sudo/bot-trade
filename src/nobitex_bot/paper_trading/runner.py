@@ -48,6 +48,10 @@ from nobitex_bot.strategies.base import Strategy
 
 logger = logging.getLogger(__name__)
 
+# فاصلهٔ stopLimitPrice از stopPrice در سفارش OCO — کمی بدتر از قیمت توقف تا در
+# نوسان آنی هم قابل اجرا بمونه (طبق مستندات رسمی نوبیتکس دربارهٔ شرط قیمت OCO).
+STOP_LIMIT_BUFFER_PCT = Decimal("0.005")
+
 
 def _opposite(direction: str) -> str:
     return "sell" if direction == "buy" else "buy"
@@ -179,14 +183,21 @@ class PaperTradingRunner:
 
         self.order_executor.submit_order(signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint)
 
+        # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
+        # stopLimitPrice کمی بدتر از stopPrice تا حتی در نوسان آنی هم قابل اجرا بمونه
+        # (طبق مستندات رسمی: فروش -> price > قیمت بازار > stopPrice/stopLimitPrice).
         exit_side = _opposite(signal.direction)
+        stop_limit_buffer = signal.stop_loss * STOP_LIMIT_BUFFER_PCT
+        stop_limit_price = (
+            signal.stop_loss - stop_limit_buffer if exit_side == "sell" else signal.stop_loss + stop_limit_buffer
+        )
         self.order_executor.submit_order(
             signal.symbol,
             exit_side,
             "oco",
             amount,
             signal.take_profit,
-            extra_params={"stopPrice": signal.stop_loss},
+            extra_params={"mode": "oco", "stopPrice": signal.stop_loss, "stopLimitPrice": stop_limit_price},
         )
 
         trade_id = self.storage.open_paper_trade(

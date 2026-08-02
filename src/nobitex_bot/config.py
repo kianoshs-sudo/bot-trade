@@ -19,14 +19,19 @@ load_dotenv()
 class Settings:
     env: str = field(default_factory=lambda: os.getenv("NOBITEX_ENV", "production"))
     api_base_url: str = field(
-        default_factory=lambda: os.getenv("NOBITEX_API_BASE_URL", "https://api.nobitex.ir")
+        default_factory=lambda: os.getenv("NOBITEX_API_BASE_URL", "https://apiv2.nobitex.ir")
     )
     testnet_base_url: str = field(
         default_factory=lambda: os.getenv(
             "NOBITEX_TESTNET_BASE_URL", "https://testnetapiv2.nobitex.ir"
         )
     )
+    # روش قدیمی احراز هویت (توکن ورود) — اگه پر باشه و کلید API خالی باشه استفاده می‌شه
     api_token: str = field(default_factory=lambda: os.getenv("NOBITEX_API_TOKEN", ""))
+    # روش جدید «کلید API» نوبیتکس — Ed25519، اولویت با این نسبت به توکن قدیمی
+    api_key: str = field(default_factory=lambda: os.getenv("NOBITEX_API_KEY", ""))
+    api_secret: str = field(default_factory=lambda: os.getenv("NOBITEX_API_SECRET", ""))
+    bot_name: str = field(default_factory=lambda: os.getenv("NOBITEX_BOT_NAME", "PersonalBot"))
     data_dir: Path = field(
         default_factory=lambda: Path(os.getenv("NOBITEX_DATA_DIR", "./data")).expanduser().resolve()
     )

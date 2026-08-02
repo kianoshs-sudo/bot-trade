@@ -1,15 +1,9 @@
 """ثابت‌های endpoint و محدودیت‌های نرخ فراخوانی نوبیتکس.
 
-⚠️ توجه: فقط یک فایل خلاصهٔ prompt (نه مستندات کامل رسمی نوبیتکس) در
-دسترس این پروژه بوده. مقادیر method/path/rate-limit این فایل دقیقاً از
-همون خلاصه گرفته شدن. قبل از فاز ۷ (اجرای واقعی روی پول واقعی) حتماً این
-مقادیر را در برابر مستندات رسمی کامل (docs.nobitex.ir یا مخزن رسمی
-nobitex/docs-api) دوباره verify کن — مخصوصاً متد HTTP دقیق و نام فیلدهای
-پاسخ که ممکنه در نسخه‌های به‌روزتر تغییر کرده باشن.
-
-مقدار هر بخش سقف مجزای خودشه؛ برای آنهایی که در prompt عدد دقیق نداشتن
-(مثل udf/history) یک مقدار محافظه‌کارانه پیش‌فرض گذاشته شده که از طریق
-env قابل تغییره.
+مقادیر این فایل در برابر مستندات رسمی کامل (apidocs.nobitex.ir) که کاربر
+پروژه مستقیماً متن کاملشو تهیه کرد، verify شدن (مرداد ۱۴۰۵). مواردی که
+هنوز دقیق مستند نشده (مثل نرخ دقیق udf/history) با یک مقدار محافظه‌کارانهٔ
+قابل‌تنظیم از طریق env مشخص شدن.
 """
 
 from __future__ import annotations
@@ -98,17 +92,25 @@ MIN_ORDER_VALUE_TETHER = 11
 
 
 def min_order_value_for_symbol(symbol: str) -> int:
-    """حداقل ارزش معامله بر اساس ارز مقصد نماد (بازار ریالی یا تتری).
-
-    ⚠️ فرمت symbol بین endpointهای مختلف نوبیتکس یکسان نیست (مثلاً
-    ``BTCIRT`` در udf/history در برابر ``btc-rls`` در market/stats) — این
-    تابع پسوند رایج‌ترین قالب‌ها رو پوشش می‌ده؛ قبل از فاز ۷ حتماً روی
-    نمادهای واقعی verify بشه.
-    """
+    """حداقل ارزش معامله بر اساس ارز مقصد نماد (بازار ریالی یا تتری)."""
     upper = symbol.upper().replace("-", "").replace("_", "")
     if upper.endswith("USDT") or upper.endswith("TETHER"):
         return MIN_ORDER_VALUE_TETHER
     return MIN_ORDER_VALUE_RLS
+
+
+def parse_symbol_to_currency_pair(symbol: str) -> tuple[str, str]:
+    """نماد سبک udf/history (مثل ``BTCIRT``, ``1M_BTTIRT``, ``BTCUSDT``) رو به
+    (srcCurrency, dstCurrency) سبک ثبت سفارش (مثل ``btc``, ``rls``) تبدیل
+    می‌کنه — طبق مستندات رسمی، هر نماد دقیقاً با یکی از دو پسوند ``IRT``
+    (بازار ریالی، کد ارز مقصد ``rls`` نه ``irt``) یا ``USDT`` تموم می‌شه.
+    """
+    lower = symbol.lower()
+    if lower.endswith("irt"):
+        return lower[: -len("irt")], "rls"
+    if lower.endswith("usdt"):
+        return lower[: -len("usdt")], "usdt"
+    raise ValueError(f"نماد نامعتبر یا پسوند ناشناخته (باید IRT یا USDT باشه): {symbol}")
 
 # قید محدودهٔ قیمت (خطای BadPrice)
 MAX_PRICE_DEVIATION_RATIO = 0.30

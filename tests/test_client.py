@@ -95,3 +95,83 @@ def test_exhausted_retries_on_persistent_429_raises(settings, monkeypatch):
 
     with pytest.raises(RateLimitExceededError):
         client.get_market_stats()
+
+
+def test_authorization_token_header_used_when_only_legacy_token_set(tmp_path):
+    settings = Settings(
+        env="production", api_base_url="https://x", testnet_base_url="https://y",
+        api_token="legacy-token-abc", data_dir=tmp_path, log_level="INFO",
+    )
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"trades": []})
+    client = NobitexClient(settings=settings, session=session)
+
+    client.get_user_recent_trades()
+
+    headers = session.request.call_args.kwargs["headers"]
+    assert headers["Authorization"] == "Token legacy-token-abc"
+    assert "Nobitex-Key" not in headers
+
+
+def test_ed25519_headers_used_and_preferred_over_legacy_token(tmp_path):
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    import base64
+
+    raw = Ed25519PrivateKey.generate().private_bytes_raw()
+    secret_b64 = base64.urlsafe_b64encode(raw).decode()
+
+    settings = Settings(
+        env="production", api_base_url="https://x", testnet_base_url="https://y",
+        api_token="legacy-token-should-be-ignored", api_key="public-key-abc", api_secret=secret_b64,
+        data_dir=tmp_path, log_level="INFO",
+    )
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"trades": []})
+    client = NobitexClient(settings=settings, session=session)
+
+    client.get_user_recent_trades()
+
+    headers = session.request.call_args.kwargs["headers"]
+    assert headers["Nobitex-Key"] == "public-key-abc"
+    assert "Nobitex-Signature" in headers
+    assert "Nobitex-Timestamp" in headers
+    assert "Authorization" not in headers
+
+
+def test_place_order_sends_src_dst_currency_not_symbol(tmp_path):
+    settings = Settings(
+        env="production", api_base_url="https://x", testnet_base_url="https://y",
+        api_token="t", data_dir=tmp_path, log_level="INFO",
+    )
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"status": "ok", "order": {"id": 1}})
+    client = NobitexClient(settings=settings, session=session)
+
+    client.place_order("BTCIRT", "buy", "limit", Decimal("0.01"), Decimal("100"))
+
+    sent_body = json.loads(session.request.call_args.kwargs["data"])
+    assert sent_body["srcCurrency"] == "btc"
+    assert sent_body["dstCurrency"] == "rls"
+    assert "symbol" not in sent_body
+
+
+def test_place_order_oco_passes_mode_and_stop_limit_price(tmp_path):
+    settings = Settings(
+        env="production", api_base_url="https://x", testnet_base_url="https://y",
+        api_token="t", data_dir=tmp_path, log_level="INFO",
+    )
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"status": "ok", "orders": []})
+    client = NobitexClient(settings=settings, session=session)
+
+    client.place_order(
+        "BTCUSDT", "sell", "oco", Decimal("0.01"), Decimal("42390"),
+        extra_params={"mode": "oco", "stopPrice": Decimal("42700"), "stopLimitPrice": Decimal("42680")},
+    )
+
+    sent_body = json.loads(session.request.call_args.kwargs["data"])
+    assert sent_body["mode"] == "oco"
+    assert sent_body["stopPrice"] == "42700"
+    assert sent_body["stopLimitPrice"] == "42680"
+    assert sent_body["srcCurrency"] == "btc"
+    assert sent_body["dstCurrency"] == "usdt"

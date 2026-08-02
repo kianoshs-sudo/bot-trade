@@ -3,11 +3,15 @@
 - مقادیر پولی با ``Decimal`` پارس می‌شن (نه float)
 - به Rate Limit مستندشده احترام گذاشته می‌شه؛ در ۴۲۹ دقیقاً به backOff صبر می‌کنه
 - خطای شبکه/سرور (۵xx) با exponential backoff دوباره امتحان می‌شه
-- endpointهای نیازمند توکن بدون NOBITEX_API_TOKEN اجرا نمی‌شن
+- دو روش احراز هویت پشتیبانی می‌شه: توکن قدیمی (``Authorization: Token``) و
+  کلید API جدید (``Nobitex-Key``/``Nobitex-Signature``/``Nobitex-Timestamp``
+  با امضای Ed25519) — اگه کلید API تنظیم شده باشه، اولویت با اونه.
+- endpointهای نیازمند احراز هویت بدون هیچ‌کدوم از این دو، اجرا نمی‌شن
 """
 
 from __future__ import annotations
 
+import json as json_module
 import logging
 import time
 from decimal import Decimal
@@ -31,9 +35,11 @@ from nobitex_bot.exchange.endpoints import (
     UDF_HISTORY,
     USER_TRADES_LIST,
     Endpoint,
+    parse_symbol_to_currency_pair,
 )
 from nobitex_bot.exchange.models import Candle, MarketStat, OrderBook
 from nobitex_bot.exchange.rate_limiter import RateLimiter, RateLimitExceededError
+from nobitex_bot.exchange.signing import sign_request
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +74,21 @@ class NobitexClient:
             self.rate_limiter.configure(name, max_calls, period)
         self.max_retries = max_retries
 
-    def _headers(self) -> dict[str, str]:
-        if self.settings.api_token:
-            return {"Authorization": f"Token {self.settings.api_token}"}
-        return {}
+    def _has_credentials(self) -> bool:
+        return bool(self.settings.api_token) or bool(self.settings.api_key and self.settings.api_secret)
+
+    def _auth_headers(self, method: str, signed_path: str, body_str: str) -> dict[str, str]:
+        headers = {"User-Agent": f"TraderBot/{self.settings.bot_name}"}
+        if self.settings.api_key and self.settings.api_secret:
+            # روش جدید: کلید API + امضای Ed25519 (اولویت با این نسبت به توکن قدیمی)
+            timestamp = int(time.time())
+            signature = sign_request(self.settings.api_secret, timestamp, method, signed_path, body_str)
+            headers["Nobitex-Key"] = self.settings.api_key
+            headers["Nobitex-Signature"] = signature
+            headers["Nobitex-Timestamp"] = str(timestamp)
+        elif self.settings.api_token:
+            headers["Authorization"] = f"Token {self.settings.api_token}"
+        return headers
 
     def _request(
         self,
@@ -81,24 +98,36 @@ class NobitexClient:
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if endpoint.requires_token and not self.settings.api_token:
+        if endpoint.requires_token and not self._has_credentials():
             raise RuntimeError(
-                f"endpoint {endpoint.path} نیاز به NOBITEX_API_TOKEN داره (در .env تنظیم کن)"
+                f"endpoint {endpoint.path} نیاز به احراز هویت داره — NOBITEX_API_KEY/NOBITEX_API_SECRET "
+                "یا NOBITEX_API_TOKEN رو در .env تنظیم کن"
             )
 
         path = endpoint.path.format(**(path_params or {}))
         url = f"{self._base_url}{path}"
 
+        # امضای Ed25519 دقیقاً روی مسیر+query و بدنهٔ خام حساسه، پس همون رشته‌ای
+        # که امضا می‌شه باید عیناً همون چیزی باشه که ارسال می‌شه — نه این‌که
+        # requests جدا سریالایز کنه.
+        query_string = requests.compat.urlencode(params, doseq=True) if params else ""
+        signed_path = f"{path}?{query_string}" if query_string else path
+        body_str = json_module.dumps(json_body) if json_body is not None else ""
+        body_bytes = body_str.encode("utf-8") if json_body is not None else None
+
         attempt = 0
         while True:
             self.rate_limiter.acquire(endpoint.rate_limit_bucket)
+            request_headers = self._auth_headers(endpoint.method.value, signed_path, body_str)
+            if body_bytes is not None:
+                request_headers["Content-Type"] = "application/json"
             try:
                 response = self.session.request(
                     endpoint.method.value,
                     url,
                     params=params,
-                    json=json_body,
-                    headers=self._headers(),
+                    data=body_bytes,
+                    headers=request_headers,
                     timeout=15,
                 )
             except requests.RequestException as exc:
@@ -219,14 +248,8 @@ class NobitexClient:
         return data.get("trades", [])
 
     # ------------------------------------------------------------------
-    # فاز ۶/۷ — ثبت و مدیریت سفارش (نیاز به توکن، فقط روی Testnet تا فاز ۷)
-    #
-    # ⚠️ فقط خلاصهٔ prompt در دسترس بوده، نه schema کامل رسمی این endpointها.
-    # نام فیلدهای body زیر بر اساس رایج‌ترین قرارداد شناخته‌شدهٔ API نوبیتکس
-    # ساخته شدن، ولی قبل از فاز ۶ (تست واقعی روی Testnet) حتماً باید در برابر
-    # پاسخ واقعی verify بشن. ``extra_params`` برای فیلدهای اختصاصی OCO/stop
-    # (مثل stopPrice, mode) که در خلاصهٔ prompt جزئیاتشون نیومده، در نظر
-    # گرفته شده تا اصلاح احتمالی بدون تغییر امضای تابع ممکن باشه.
+    # فاز ۶/۷ — ثبت و مدیریت سفارش (نیاز به احراز هویت، فقط روی Testnet تا فاز ۷)
+    # طبق مستندات رسمی apidocs.nobitex.ir (بخش «معامله در بازار اسپات»)
     # ------------------------------------------------------------------
 
     def place_order(
@@ -243,11 +266,15 @@ class NobitexClient:
 
         side: "buy" | "sell"
         order_type: "limit" | "market" | "stop_limit" | "stop_market" | "oco"
+        برای oco حتماً باید extra_params شامل ``mode="oco"``, ``stopPrice``,
+        و ``stopLimitPrice`` باشه.
         """
+        src_currency, dst_currency = parse_symbol_to_currency_pair(symbol)
         body: dict[str, Any] = {
             "type": side,
             "execution": order_type,
-            "symbol": symbol,
+            "srcCurrency": src_currency,
+            "dstCurrency": dst_currency,
             "amount": str(amount),
         }
         if price is not None:
