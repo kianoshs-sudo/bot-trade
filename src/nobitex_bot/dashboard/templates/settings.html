@@ -1,39 +1,94 @@
 {% extends "base.html" %}
 {% block title %}تنظیمات{% endblock %}
 {% block content %}
+<div class="page-head">
+  <h1>تنظیمات</h1>
+  <p>کلیدها و توکن‌ها فقط رمزنگاری‌شده روی دیسک خودت ذخیره می‌شن — هیچ‌کدوم جای دیگه‌ای ارسال نمی‌شه.</p>
+</div>
 
 <div class="card">
-  <h2>کلیدها و توکن‌ها (رمزنگاری‌شده روی دیسک)</h2>
-  <p class="warn">فقط فیلدهایی که پر کنید ذخیره/به‌روزرسانی می‌شن؛ خالی گذاشتن یعنی مقدار قبلی دست‌نخورده می‌مونه.</p>
-  <p>در حال حاضر ذخیره‌شده: {% if saved_secret_names %}{{ saved_secret_names | join('، ') }}{% else %}هیچ‌کدام{% endif %}</p>
+  <h2>🔑 اتصال به صرافی نوبیتکس</h2>
+  <p class="hint">توکن API که از پنل کاربری نوبیتکس گرفتی. دسترسی لازم: <strong>Read + Trade</strong> — هیچ‌وقت Withdraw رو فعال نکن.</p>
   <form method="post">
     <input type="hidden" name="form_type" value="secrets">
-    {% for field_name, label in secret_field_labels.items() %}
-    <label>{{ label }}</label>
-    <input type="password" name="{{ field_name }}" placeholder="●●●●●●●●">
-    {% endfor %}
-    <button type="submit">ذخیرهٔ کلیدها</button>
+    <label>
+      {{ secret_field_labels['nobitex_api_token'] }}
+      {% if 'nobitex_api_token' in saved_secret_names %}<span class="badge success">ذخیره شده</span>{% else %}<span class="badge muted">ذخیره نشده</span>{% endif %}
+    </label>
+    <input type="password" name="nobitex_api_token" placeholder="برای تغییر، این‌جا وارد کن">
+    <div class="field-help">فقط اگه می‌خوای مقدارش رو عوض کنی این‌جا چیزی بنویس؛ خالی بمونه یعنی مقدار قبلی دست‌نخورده می‌مونه.</div>
+    <button type="submit">ذخیرهٔ توکن نوبیتکس</button>
   </form>
 </div>
 
 <div class="card">
-  <h2>مدیریت ریسک (دستی — فراتر از پیش‌فرض)</h2>
+  <h2>🔔 اعلان‌ها (بله / تلگرام)</h2>
+  <p class="hint">برای دریافت سیگنال‌ها و تایید/رد معاملات از داخل بله یا تلگرام. پر کردن هر دو لازم نیست — هرکدوم که استفاده می‌کنی رو پر کن.</p>
+  <form method="post">
+    <input type="hidden" name="form_type" value="secrets">
+    <div class="field-grid">
+      <div>
+        <label>
+          {{ secret_field_labels['telegram_token'] }}
+          {% if 'telegram_token' in saved_secret_names %}<span class="badge success">ذخیره شده</span>{% else %}<span class="badge muted">ذخیره نشده</span>{% endif %}
+        </label>
+        <input type="password" name="telegram_token" placeholder="برای تغییر، این‌جا وارد کن">
+      </div>
+      <div>
+        <label>
+          {{ secret_field_labels['telegram_chat_id'] }}
+          {% if 'telegram_chat_id' in saved_secret_names %}<span class="badge success">ذخیره شده</span>{% else %}<span class="badge muted">ذخیره نشده</span>{% endif %}
+        </label>
+        <input type="password" name="telegram_chat_id" placeholder="برای تغییر، این‌جا وارد کن">
+      </div>
+      <div>
+        <label>
+          {{ secret_field_labels['bale_token'] }}
+          {% if 'bale_token' in saved_secret_names %}<span class="badge success">ذخیره شده</span>{% else %}<span class="badge muted">ذخیره نشده</span>{% endif %}
+        </label>
+        <input type="password" name="bale_token" placeholder="برای تغییر، این‌جا وارد کن">
+      </div>
+      <div>
+        <label>
+          {{ secret_field_labels['bale_chat_id'] }}
+          {% if 'bale_chat_id' in saved_secret_names %}<span class="badge success">ذخیره شده</span>{% else %}<span class="badge muted">ذخیره نشده</span>{% endif %}
+        </label>
+        <input type="password" name="bale_chat_id" placeholder="برای تغییر، این‌جا وارد کن">
+      </div>
+    </div>
+    <div class="field-help">فقط فیلدهایی که پر کنی ذخیره/به‌روزرسانی می‌شن؛ خالی گذاشتن یعنی مقدار قبلی دست‌نخورده می‌مونه.</div>
+    <button type="submit">ذخیرهٔ اعلان‌ها</button>
+  </form>
+</div>
+
+<div class="card">
+  <h2>⚖️ مدیریت ریسک (دستی — فراتر از پیش‌فرض)</h2>
+  <p class="hint">این مقادیر بدون نیاز به ری‌استارت ربات، توی چرخهٔ بعدی اعمال می‌شن.</p>
   <form method="post">
     <input type="hidden" name="form_type" value="risk">
-    <label>درصد ریسک هر معامله (٪ از سرمایه)</label>
-    <input type="number" step="0.1" name="risk_per_trade_pct" value="{{ (risk.risk_per_trade_pct * 100) }}">
-
-    <label>حداکثر ضرر روزانه (٪ سرمایه — با رسیدن به این حد، معامله تا فردا متوقف می‌شه)</label>
-    <input type="number" step="0.1" name="max_daily_loss_pct" value="{{ (risk.max_daily_loss_pct * 100) }}">
-
-    <label>حداکثر تعداد معاملات هم‌زمان باز</label>
-    <input type="number" step="1" name="max_concurrent_trades" value="{{ risk.max_concurrent_trades }}">
-
-    <label>حداکثر انحراف مجاز قیمت از قیمت لحظه‌ای بازار (٪ — قید BadPrice)</label>
-    <input type="number" step="1" name="max_price_deviation" value="{{ (risk.max_price_deviation * 100) }}">
-
+    <div class="field-grid">
+      <div>
+        <label>درصد ریسک هر معامله</label>
+        <input type="number" step="0.1" name="risk_per_trade_pct" value="{{ (risk.risk_per_trade_pct * 100) }}">
+        <div class="field-help">چند درصد از سرمایه در هر معامله به خطر بیفته (٪ از سرمایه)</div>
+      </div>
+      <div>
+        <label>حداکثر ضرر روزانه</label>
+        <input type="number" step="0.1" name="max_daily_loss_pct" value="{{ (risk.max_daily_loss_pct * 100) }}">
+        <div class="field-help">با رسیدن به این حد (٪ سرمایه)، معامله تا فردا متوقف می‌شه</div>
+      </div>
+      <div>
+        <label>حداکثر معاملات هم‌زمان</label>
+        <input type="number" step="1" name="max_concurrent_trades" value="{{ risk.max_concurrent_trades }}">
+        <div class="field-help">تعداد پوزیشن بازی که هر ترکیب می‌تونه هم‌زمان داشته باشه</div>
+      </div>
+      <div>
+        <label>حداکثر انحراف قیمت مجاز</label>
+        <input type="number" step="1" name="max_price_deviation" value="{{ (risk.max_price_deviation * 100) }}">
+        <div class="field-help">قید BadPrice — حداکثر فاصلهٔ مجاز از قیمت لحظه‌ای بازار (٪)</div>
+      </div>
+    </div>
     <button type="submit">ذخیرهٔ تنظیمات ریسک</button>
   </form>
 </div>
-
 {% endblock %}

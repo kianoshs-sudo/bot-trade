@@ -24,6 +24,7 @@ from pathlib import Path
 from flask import Flask, flash, redirect, render_template, request, session, url_for
 
 from nobitex_bot.config import Settings
+from nobitex_bot.dashboard.formatting import register_filters
 from nobitex_bot.data.storage import Storage
 from nobitex_bot.monitoring.decision_log import DecisionLogger
 from nobitex_bot.monitoring.status_snapshot import read_status_snapshot
@@ -43,6 +44,7 @@ SECRET_FIELD_LABELS = {
 def create_app(settings: Settings) -> Flask:
     app = Flask(__name__)
     app.secret_key = os.environ.get("NOBITEX_FLASK_SECRET_KEY") or secrets_module.token_hex(32)
+    register_filters(app)
 
     secrets_path = settings.data_dir / "secrets.enc"
     risk_config_path = settings.data_dir / "risk_config.json"
@@ -64,14 +66,14 @@ def create_app(settings: Settings) -> Flask:
         if request.method == "POST":
             password = request.form.get("password", "")
             if not password:
-                flash("رمز رو وارد کن")
+                flash("رمز رو وارد کن", "error")
                 return render_template("login.html")
             try:
                 store = SecretStore(secrets_path, password)
                 store.list_secret_names()
                 store.ensure_initialized()  # اولین ورود: فایل رمزنگاری‌شده رو با همین رمز می‌سازه
             except WrongMasterPasswordError:
-                flash("رمز اصلی اشتباهه")
+                flash("رمز اصلی اشتباهه", "error")
                 return render_template("login.html")
             session["master_password"] = password
             return redirect(url_for("index"))
@@ -88,7 +90,8 @@ def create_app(settings: Settings) -> Flask:
     def index():
         status = read_status_snapshot(status_path)
         decisions = DecisionLogger(decisions_path).read_recent(20)
-        return render_template("index.html", status=status, decisions=decisions)
+        total_capital = sum((Decimal(t["capital"]) for t in status["tracks"]), Decimal(0)) if status else Decimal(0)
+        return render_template("index.html", status=status, decisions=decisions, total_capital=total_capital)
 
     @app.route("/trades")
     @login_required
@@ -97,7 +100,8 @@ def create_app(settings: Settings) -> Flask:
         open_trades = storage.get_open_paper_trades()
         closed_trades = storage.get_closed_paper_trades()
         storage.close()
-        return render_template("trades.html", open_trades=open_trades, closed_trades=closed_trades)
+        total_pnl = sum((Decimal(t["pnl"]) for t in closed_trades if t["pnl"]), Decimal(0))
+        return render_template("trades.html", open_trades=open_trades, closed_trades=closed_trades, total_pnl=total_pnl)
 
     @app.route("/settings", methods=["GET", "POST"])
     @login_required
@@ -112,7 +116,7 @@ def create_app(settings: Settings) -> Flask:
                     value = request.form.get(field_name, "").strip()
                     if value:
                         store.set_secret(field_name, value)
-                flash("کلیدها/توکن‌ها ذخیره شدن (رمزنگاری‌شده)")
+                flash("کلیدها/توکن‌ها ذخیره شدن (رمزنگاری‌شده)", "success")
 
             elif form_type == "risk":
                 try:
@@ -123,9 +127,9 @@ def create_app(settings: Settings) -> Flask:
                         max_price_deviation=Decimal(request.form["max_price_deviation"]) / 100,
                     )
                     save_risk_config(risk_config_path, config)
-                    flash("تنظیمات مدیریت ریسک ذخیره شد — چرخهٔ بعدی ربات (بدون نیاز به ری‌استارت) اعمال می‌شه")
+                    flash("تنظیمات مدیریت ریسک ذخیره شد — چرخهٔ بعدی ربات (بدون نیاز به ری‌استارت) اعمال می‌شه", "success")
                 except (InvalidOperation, KeyError, ValueError):
-                    flash("مقادیر واردشده برای تنظیمات ریسک نامعتبرن")
+                    flash("مقادیر واردشده برای تنظیمات ریسک نامعتبرن", "error")
 
             return redirect(url_for("settings_view"))
 

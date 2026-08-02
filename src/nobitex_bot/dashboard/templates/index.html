@@ -1,40 +1,79 @@
 {% extends "base.html" %}
 {% block title %}وضعیت{% endblock %}
 {% block content %}
-<h2>وضعیت زندهٔ ترکیب‌های استراتژی/تایم‌فریم</h2>
+<div class="page-head">
+  <h1>وضعیت زنده</h1>
+  <p>این صفحه نشون می‌ده ربات الان روی هر ترکیب استراتژی/تایم‌فریم چیکار می‌کنه و آخرین تصمیم‌هاش چی بوده.</p>
+</div>
 
 {% if not status %}
-<div class="card">هنوز هیچ عکس وضعیتی ثبت نشده — ربات (``run_paper_trading.py``) هنوز اجرا نشده یا هنوز اولین چرخه رو تموم نکرده.</div>
+<div class="empty-state">
+  <div class="icon">💤</div>
+  هنوز هیچ عکس وضعیتی ثبت نشده — ربات (<code>run_paper_trading.py</code>) هنوز اجرا نشده یا اولین چرخه‌ش تموم نشده.
+</div>
 {% else %}
-<p style="color:#888;font-size:13px;">آخرین به‌روزرسانی: {{ status.updated_at }}</p>
+
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">تعداد ترکیب‌های فعال</div>
+    <div class="value num">{{ status.tracks | rejectattr('daily_loss_halted') | list | length }} / {{ status.tracks | length }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">پوزیشن‌های باز</div>
+    <div class="value num">{{ status.tracks | sum(attribute='open_positions') }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">مجموع سرمایهٔ مجازی</div>
+    <div class="value num">{{ total_capital | fnumber }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">آخرین به‌روزرسانی</div>
+    <div class="value num" style="font-size:15px;">{{ status.updated_at | fdatetime }}</div>
+  </div>
+</div>
+
+<h2 class="section-title">ترکیب‌های استراتژی/تایم‌فریم <span class="count-badge">{{ status.tracks | length }}</span></h2>
+<div class="table-wrap">
 <table>
   <tr><th>ترکیب</th><th>سرمایهٔ مجازی</th><th>پوزیشن‌های باز</th><th>وضعیت</th></tr>
   {% for t in status.tracks %}
   <tr>
     <td>{{ t.label }}</td>
-    <td>{{ t.capital }}</td>
-    <td>{{ t.open_positions }}</td>
-    <td>{% if t.daily_loss_halted %}<span class="halted">متوقف (حد ضرر روزانه)</span>{% else %}<span class="ok">فعال</span>{% endif %}</td>
+    <td class="num">{{ t.capital | fnumber }}</td>
+    <td class="num">{{ t.open_positions }}</td>
+    <td>
+      {% if t.daily_loss_halted %}
+      <span class="badge warning">متوقف — حد ضرر روزانه</span>
+      {% else %}
+      <span class="badge success">فعال</span>
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>
+</div>
 {% endif %}
 
-<h2>آخرین تصمیم‌ها (علت‌یابی)</h2>
+<h2 class="section-title">آخرین تصمیم‌ها (علت‌یابی) <span class="count-badge">{{ decisions | length }}</span></h2>
 {% if not decisions %}
-<div class="card">هنوز تصمیمی ثبت نشده.</div>
+<div class="empty-state">
+  <div class="icon">📭</div>
+  هنوز تصمیمی ثبت نشده.
+</div>
 {% else %}
+<div class="table-wrap">
 <table>
   <tr><th>زمان</th><th>رویداد</th><th>نماد</th><th>استراتژی</th><th>دلیل</th></tr>
   {% for d in decisions %}
   <tr>
-    <td>{{ d.ts }}</td>
-    <td>{{ d.event_type }}</td>
-    <td>{{ d.symbol }}</td>
-    <td>{{ d.strategy_name }}</td>
-    <td>{{ d.reason }}</td>
+    <td class="muted-cell num">{{ d.ts | fdatetime }}</td>
+    <td><span class="badge {{ d.event_type | event_class }}">{{ d.event_type | event_label }}</span></td>
+    <td>{{ d.symbol | fsymbol }}</td>
+    <td class="muted-cell">{{ d.strategy_name }}</td>
+    <td class="wrap">{{ d.reason }}</td>
   </tr>
   {% endfor %}
 </table>
+</div>
 {% endif %}
 {% endblock %}

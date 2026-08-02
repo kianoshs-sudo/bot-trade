@@ -2,41 +2,206 @@
 <html lang="fa" dir="rtl">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}داشبورد ربات نوبیتکس{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Tahoma, Vazirmatn, sans-serif; background: #0f1115; color: #e6e6e6; margin: 0; }
-    nav { background: #171a21; padding: 12px 24px; display: flex; gap: 20px; align-items: center; }
-    nav a { color: #cfd3da; text-decoration: none; }
-    nav a:hover { color: #4fc3f7; }
-    main { padding: 24px; max-width: 1000px; margin: 0 auto; }
-    table { border-collapse: collapse; width: 100%; margin-bottom: 24px; }
-    th, td { border: 1px solid #2a2e37; padding: 8px 10px; text-align: right; font-size: 14px; }
-    th { background: #1c1f27; }
-    .card { background: #171a21; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    .flash { background: #2d3a1f; border: 1px solid #4a6b2a; padding: 10px; border-radius: 6px; margin-bottom: 16px; }
-    .halted { color: #ff6b6b; font-weight: bold; }
-    .ok { color: #6bcf6b; }
-    label { display: block; margin: 10px 0 4px; }
-    input[type=text], input[type=password], input[type=number] {
-      width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #2a2e37; background: #0f1115; color: #eee; box-sizing: border-box;
+    :root {
+      --bg: #0a0c11;
+      --bg-elevated: #12151d;
+      --bg-elevated-2: #191d27;
+      --border: #232838;
+      --text: #eceef2;
+      --text-muted: #8b93a7;
+      --text-faint: #5b637a;
+      --accent: #5b8cff;
+      --accent-hover: #7aa2ff;
+      --accent-bg: rgba(91, 140, 255, .14);
+      --success: #34d399;
+      --success-bg: rgba(52, 211, 153, .14);
+      --danger: #f87171;
+      --danger-bg: rgba(248, 113, 113, .14);
+      --warning: #fbbf24;
+      --warning-bg: rgba(251, 191, 36, .14);
+      --radius: 14px;
+      --radius-sm: 8px;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5);
     }
-    button { margin-top: 14px; padding: 8px 18px; border-radius: 4px; border: none; background: #2f6fed; color: white; cursor: pointer; }
-    .warn { color: #ffb347; font-size: 13px; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Vazirmatn', Tahoma, sans-serif;
+      background:
+        radial-gradient(1200px 600px at 15% -10%, rgba(91,140,255,.08), transparent 60%),
+        radial-gradient(900px 500px at 100% 0%, rgba(52,211,153,.05), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    a { color: inherit; }
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(18, 21, 29, .85);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+      display: flex; align-items: center; gap: 4px; height: 60px;
+    }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; margin-left: 12px; white-space: nowrap; }
+    .brand-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px var(--success-bg); }
+    nav a.navlink {
+      color: var(--text-muted); text-decoration: none; font-size: 14px; font-weight: 500;
+      padding: 8px 14px; border-radius: var(--radius-sm); transition: background .15s, color .15s;
+    }
+    nav a.navlink:hover { color: var(--text); background: var(--bg-elevated-2); }
+    nav a.navlink.active { color: var(--accent); background: var(--accent-bg); }
+    nav .spacer { flex: 1; }
+    nav a.logout { color: var(--text-faint); text-decoration: none; font-size: 13px; padding: 8px 12px; }
+    nav a.logout:hover { color: var(--danger); }
+
+    main { padding: 32px 24px 64px; max-width: 1080px; margin: 0 auto; }
+    .page-head { margin-bottom: 24px; }
+    .page-head h1 { font-size: 22px; margin: 0 0 4px; }
+    .page-head p { color: var(--text-muted); font-size: 14px; margin: 0; }
+
+    h2.section-title {
+      font-size: 15px; font-weight: 600; color: var(--text);
+      margin: 36px 0 14px; display: flex; align-items: center; gap: 8px;
+    }
+    h2.section-title:first-child { margin-top: 0; }
+    h2.section-title .count-badge {
+      font-size: 12px; font-weight: 600; color: var(--text-muted);
+      background: var(--bg-elevated-2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 1px 9px;
+    }
+
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px 22px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 { margin-top: 0; font-size: 16px; }
+    .card > p.hint { color: var(--text-muted); font-size: 13px; margin-top: -6px; }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin-bottom: 28px; }
+    .stat-card {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 16px 18px; box-shadow: var(--shadow);
+    }
+    .stat-card .label { color: var(--text-muted); font-size: 12.5px; margin-bottom: 6px; }
+    .stat-card .value { font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; unicode-bidi: isolate; direction: ltr; }
+    .stat-card .value.success { color: var(--success); }
+    .stat-card .value.danger { color: var(--danger); }
+
+    .table-wrap {
+      background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius);
+      overflow: auto; margin-bottom: 24px; box-shadow: var(--shadow);
+    }
+    table { border-collapse: collapse; width: 100%; min-width: 560px; }
+    th, td { padding: 12px 16px; text-align: right; font-size: 13.5px; white-space: nowrap; }
+    td.wrap { white-space: normal; min-width: 220px; }
+    th {
+      background: var(--bg-elevated-2); color: var(--text-muted); font-weight: 600;
+      font-size: 12px; text-transform: uppercase; letter-spacing: .03em;
+      position: sticky; top: 0;
+    }
+    tbody tr { border-top: 1px solid var(--border); transition: background .12s; }
+    tbody tr:hover { background: rgba(255,255,255,.02); }
+    td { font-variant-numeric: tabular-nums; color: var(--text); }
+    td.muted-cell { color: var(--text-muted); }
+    .num { unicode-bidi: isolate; direction: ltr; }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600;
+      padding: 3px 11px; border-radius: 999px; white-space: nowrap; line-height: 1.8;
+    }
+    .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .badge.success { color: var(--success); background: var(--success-bg); }
+    .badge.danger { color: var(--danger); background: var(--danger-bg); }
+    .badge.warning { color: var(--warning); background: var(--warning-bg); }
+    .badge.info { color: var(--accent); background: var(--accent-bg); }
+    .badge.neutral { color: var(--text-muted); background: var(--bg-elevated-2); }
+    .badge.muted { color: var(--text-faint); background: var(--bg-elevated-2); }
+
+    .empty-state {
+      text-align: center; padding: 46px 20px; color: var(--text-muted);
+      background: var(--bg-elevated); border: 1px dashed var(--border); border-radius: var(--radius);
+      margin-bottom: 24px; font-size: 14px;
+    }
+    .empty-state .icon { font-size: 28px; margin-bottom: 10px; opacity: .7; }
+    .empty-state code { background: var(--bg-elevated-2); padding: 2px 6px; border-radius: 5px; font-size: 12.5px; }
+
+    .flash { padding: 12px 16px; border-radius: var(--radius-sm); margin-bottom: 18px; font-size: 14px; border: 1px solid transparent; }
+    .flash.success { background: var(--success-bg); border-color: rgba(52,211,153,.3); color: var(--success); }
+    .flash.error { background: var(--danger-bg); border-color: rgba(248,113,113,.3); color: var(--danger); }
+    .flash.message { background: var(--accent-bg); border-color: rgba(91,140,255,.3); color: var(--accent); }
+
+    label { display: block; margin: 16px 0 6px; font-size: 13.5px; color: var(--text-muted); font-weight: 500; }
+    label:first-of-type { margin-top: 0; }
+    .field-help { font-size: 12px; color: var(--text-faint); margin-top: 5px; }
+    input[type=text], input[type=password], input[type=number] {
+      width: 100%; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+      background: var(--bg); color: var(--text); font-family: inherit; font-size: 14px;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+    input::placeholder { color: var(--text-faint); }
+
+    .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 20px; }
+
+    button, .btn {
+      margin-top: 18px; padding: 10px 20px; border-radius: var(--radius-sm); border: none;
+      background: var(--accent); color: white; cursor: pointer; font-family: inherit;
+      font-size: 14px; font-weight: 600; transition: background .15s, transform .1s;
+    }
+    button:hover, .btn:hover { background: var(--accent-hover); }
+    button:active, .btn:active { transform: scale(.98); }
+
+    .divider { border: none; border-top: 1px solid var(--border); margin: 22px 0; }
+
+    .login-wrap { min-height: calc(100vh - 60px); display: flex; align-items: center; justify-content: center; }
+    .login-card { width: 100%; max-width: 380px; }
+    .login-card .brand-lg { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-bottom: 22px; }
+    .login-card .brand-lg .logo {
+      width: 52px; height: 52px; border-radius: 16px; background: var(--accent-bg);
+      display: flex; align-items: center; justify-content: center; font-size: 24px;
+    }
+    .login-card h2 { text-align: center; margin: 0 0 4px; }
+    .login-card .subtitle { text-align: center; color: var(--text-muted); font-size: 13.5px; margin-bottom: 18px; }
+    .login-card button { width: 100%; }
+    .callout {
+      background: var(--warning-bg); border: 1px solid rgba(251,191,36,.3); color: var(--warning);
+      padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 14px;
+    }
+
+    @media (max-width: 640px) {
+      main { padding: 20px 14px 48px; }
+      nav { padding: 0 14px; gap: 0; }
+      .brand span.brand-text { display: none; }
+    }
   </style>
 </head>
 <body>
   {% if session.get('master_password') %}
   <nav>
-    <a href="{{ url_for('index') }}">وضعیت</a>
-    <a href="{{ url_for('trades') }}">معاملات</a>
-    <a href="{{ url_for('settings_view') }}">تنظیمات</a>
-    <span style="flex:1"></span>
-    <a href="{{ url_for('logout') }}">خروج</a>
+    <span class="brand"><span class="brand-dot"></span><span class="brand-text">بات نوبیتکس</span></span>
+    <a class="navlink {{ 'active' if request.path == url_for('index') }}" href="{{ url_for('index') }}">وضعیت</a>
+    <a class="navlink {{ 'active' if request.path == url_for('trades') }}" href="{{ url_for('trades') }}">معاملات</a>
+    <a class="navlink {{ 'active' if request.path == url_for('settings_view') }}" href="{{ url_for('settings_view') }}">تنظیمات</a>
+    <span class="spacer"></span>
+    <a class="logout" href="{{ url_for('logout') }}">خروج ⏻</a>
   </nav>
   {% endif %}
   <main>
-    {% with messages = get_flashed_messages() %}
-      {% if messages %}{% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}{% endif %}
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}{% for category, m in messages %}<div class="flash {{ category }}">{{ m }}</div>{% endfor %}{% endif %}
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
