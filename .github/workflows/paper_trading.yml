@@ -31,8 +31,9 @@ jobs:
 
       - name: Run paper trading (single cycle)
         env:
+          NOBITEX_ENV: testnet
           NOBITEX_API_KEY: ${{ secrets.NOBITEX_API_KEY }}
           NOBITEX_API_SECRET: ${{ secrets.NOBITEX_API_SECRET }}
-          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python run_paper_trading.py --once --approval messaging
+        run: python scripts/run_paper_trading.py --once --approval messaging

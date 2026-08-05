@@ -99,16 +99,24 @@ def main() -> None:
                 sys.exit(1)
         return None
 
-    # توکن API رو یا از .env/GitHub Secret (NOBITEX_API_TOKEN) یا از فایل
-    # رمزنگاری‌شدهٔ داشبورد (فاز ۸) بخون.
-    if not settings.api_token:
+    # احراز هویت: یا کلید API جدید (NOBITEX_API_KEY/NOBITEX_API_SECRET — Ed25519،
+    # اولویت با این‌هاست) یا توکن قدیمی (NOBITEX_API_TOKEN). هرکدوم از .env/GitHub
+    # Secret یا فایل رمزنگاری‌شدهٔ داشبورد (فاز ۸) قابل تامینه.
+    if not (settings.api_key and settings.api_secret):
+        api_key = _get_secret("nobitex_api_key", "NOBITEX_API_KEY")
+        api_secret = _get_secret("nobitex_api_secret", "NOBITEX_API_SECRET")
+        if api_key and api_secret:
+            settings = replace(settings, api_key=api_key, api_secret=api_secret)
+
+    if not (settings.api_key and settings.api_secret) and not settings.api_token:
         token = _get_secret("nobitex_api_token", "NOBITEX_API_TOKEN")
         if token:
             settings = replace(settings, api_token=token)
         if not settings.api_token:
             logger.error(
-                "NOBITEX_API_TOKEN تنظیم نشده — یا در .env/GitHub Secret بذارش، یا از داشبورد "
-                "(صفحهٔ تنظیمات) ذخیره کن و NOBITEX_MASTER_PASSWORD رو بده"
+                "هیچ‌کدوم از NOBITEX_API_KEY+NOBITEX_API_SECRET یا NOBITEX_API_TOKEN تنظیم نشده — "
+                "یا در .env/GitHub Secret بذارشون، یا از داشبورد (صفحهٔ تنظیمات) ذخیره کن و "
+                "NOBITEX_MASTER_PASSWORD رو بده"
             )
             sys.exit(1)
 
