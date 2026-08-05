@@ -76,6 +76,25 @@ def test_429_respects_backoff_field_then_succeeds(settings, monkeypatch):
     assert session.request.call_count == 2
 
 
+def test_429_backoff_from_server_is_capped_to_prevent_indefinite_hang(settings, monkeypatch):
+    """اگه سرور مقدار backOff خیلی بزرگ (یا غیرمنتظره) برگردونه، نباید یک
+    اجرای ۱۵ دقیقه‌ای GitHub Actions مدت نامعلومی معطل بمونه — این دقیقاً
+    همون چیزیه که یک اجرای واقعی رو در عمل هنگ کرد."""
+    slept = []
+    monkeypatch.setattr("nobitex_bot.exchange.rate_limiter.time.sleep", lambda s: slept.append(s))
+
+    session = MagicMock()
+    session.request.side_effect = [
+        make_response(429, {"backOff": 3600, "limit": 20}),
+        make_response(200, {"status": "ok", "stats": {}}),
+    ]
+    client = NobitexClient(settings=settings, session=session)
+
+    client.get_market_stats()
+
+    assert slept == [60.0]
+
+
 def test_api_error_raised_on_failed_status(settings):
     session = MagicMock()
     session.request.return_value = make_response(200, {"status": "failed", "code": "SmallOrder", "message": "too small"})

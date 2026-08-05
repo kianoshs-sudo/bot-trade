@@ -53,6 +53,12 @@ class NobitexAPIError(Exception):
         super().__init__(f"{code}: {message}")
 
 
+# سقف امن برای مقدار backOff که سرور برمی‌گردونه — بدون این سقف، یک مقدار
+# بزرگ یا غیرمنتظره از سرور می‌تونه یک اجرای ۱۵ دقیقه‌ای GitHub Actions رو
+# برای مدت نامعلومی معطل نگه داره (هر تلاش تا max_retries بار).
+MAX_BACKOFF_SECONDS = 60.0
+
+
 class NobitexClient:
     def __init__(
         self,
@@ -152,7 +158,7 @@ class NobitexClient:
                     body = response.json()
                 except ValueError:
                     body = {}
-                back_off = float(body.get("backOff", min(2**attempt, 30)))
+                back_off = min(float(body.get("backOff", min(2**attempt, 30))), MAX_BACKOFF_SECONDS)
                 RateLimiter.sleep_for_backoff(back_off)
                 continue
 
