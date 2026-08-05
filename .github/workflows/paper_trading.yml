@@ -1,0 +1,46 @@
+name: Paper Trading Loop
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Run every 15 minutes
+  workflow_dispatch:        # Allow manual trigger from GitHub UI
+
+jobs:
+  run-paper-trading:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Cache Python packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run paper trading (single cycle)
+        env:
+          NOBITEX_API_KEY: ${{ secrets.NOBITEX_API_KEY }}
+          NOBITEX_API_SECRET: ${{ secrets.NOBITEX_API_SECRET }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python run_paper_trading.py --once --approval messaging
+
+      - name: Upload logs (if any errors)
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: paper-trading-logs
+          path: logs/
+          retention-days: 7
