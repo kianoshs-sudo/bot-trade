@@ -5,6 +5,9 @@ on:
     - cron: '*/15 * * * *'  # Run every 15 minutes
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
+permissions:
+  contents: write   # لازم برای ذخیرهٔ حافظهٔ ربات در شاخهٔ paper-trading-state
+
 jobs:
   run-paper-trading:
     runs-on: ubuntu-latest
@@ -29,6 +32,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Restore bot memory from previous run
+        run: |
+          mkdir -p data
+          if git ls-remote --exit-code --heads origin paper-trading-state > /dev/null 2>&1; then
+            git fetch --depth=1 origin paper-trading-state
+            git archive FETCH_HEAD | tar -x -C data
+            echo "حافظهٔ قبلی بازیابی شد"
+          else
+            echo "حافظهٔ قبلی وجود نداره — شروع از صفر"
+          fi
+
       - name: Run paper trading (single cycle)
         env:
           NOBITEX_ENV: testnet
@@ -37,3 +51,15 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scripts/run_paper_trading.py --once --approval messaging
+
+      - name: Save bot memory for next run
+        if: always()
+        run: |
+          cd data
+          rm -rf .git
+          git init -q -b paper-trading-state
+          git add -A
+          git -c user.email="bot@users.noreply.github.com" -c user.name="paper-trading-bot" \
+            commit -q -m "state $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
+            HEAD:paper-trading-state
