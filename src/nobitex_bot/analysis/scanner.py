@@ -24,7 +24,8 @@ from nobitex_bot.analysis.indicators import (
     compute_indicators,
 )
 from nobitex_bot.data.market_data import MarketDataService
-from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS
+from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, stats_symbol_to_udf_symbol
+from nobitex_bot.exchange.models import MarketStat
 
 logger = logging.getLogger(__name__)
 
@@ -101,13 +102,28 @@ class MarketScanner:
         )
 
     def scan(self, symbols: list[str] | None = None) -> list[ScanResult]:
-        """همهٔ بازارها (یا لیست مشخص‌شده) رو اسکن و بر اساس امتیاز ترکیبی رتبه‌بندی می‌کنه."""
+        """همهٔ بازارها (یا لیست مشخص‌شده) رو اسکن و بر اساس امتیاز ترکیبی رتبه‌بندی می‌کنه.
+
+        ``market/stats`` نمادها رو با فرمتی کاملاً متفاوت از ``market/udf/history``
+        برمی‌گردونه (``btc-rls`` نه ``BTCIRT``) — بدون این تبدیل، هر درخواست
+        کندل با همون نماد خام با خطای ۴۰۰ رد می‌شد (کشف‌شده در اولین اجرای
+        واقعی روی GitHub Actions، چون این sandbox قبلاً دسترسی شبکه نداشت).
+        """
         stats = self.market_data.get_all_market_stats()
-        target_symbols = symbols if symbols is not None else list(stats.keys())
+
+        udf_stats: dict[str, MarketStat] = {}
+        for raw_symbol, stat in stats.items():
+            try:
+                udf_symbol = stats_symbol_to_udf_symbol(raw_symbol)
+            except ValueError:
+                udf_symbol = raw_symbol  # از قبل به فرمت udf بوده (مثلاً تست‌ها یا فراخوانی مستقیم)
+            udf_stats[udf_symbol] = stat
+
+        target_symbols = symbols if symbols is not None else list(udf_stats.keys())
 
         results: list[ScanResult] = []
         for symbol in target_symbols:
-            stat = stats.get(symbol)
+            stat = udf_stats.get(symbol)
             if stat is None or stat.latest is None:
                 continue
             try:

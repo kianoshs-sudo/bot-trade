@@ -112,5 +112,30 @@ def parse_symbol_to_currency_pair(symbol: str) -> tuple[str, str]:
         return lower[: -len("usdt")], "usdt"
     raise ValueError(f"نماد نامعتبر یا پسوند ناشناخته (باید IRT یا USDT باشه): {symbol}")
 
+
+_STATS_QUOTE_TO_UDF_SUFFIX = {"rls": "IRT", "usdt": "USDT"}
+
+
+def stats_symbol_to_udf_symbol(symbol: str) -> str:
+    """``market/stats`` نمادها رو با فرمتی کاملاً متفاوت از ``market/udf/history``
+    برمی‌گردونه — کوچک، با خط تیره بین پایه و مقصد (مثل ``btc-rls``،
+    ``1m_btt-rls``، ``celr-usdt``)، نه فرمت udf (``BTCIRT``، ``1M_BTTIRT``،
+    ``CELRUSDT``). بدون این تبدیل، هر درخواست کندل تاریخی با همون نمادِ خام
+    stats با خطای ۴۰۰ رد می‌شه — چون udf/history اصلاً این فرمت رو نمی‌شناسه
+    (این دقیقاً چیزیه که هیچ‌وقت به‌خاطر نبود دسترسی شبکه در فاز ۰-۶ روی
+    Testnet واقعی verify نشده بود و در اولین اجرای واقعی کشف شد).
+    """
+    base_part, sep, quote_part = symbol.rpartition("-")
+    if not sep:
+        raise ValueError(f"فرمت نماد stats نامعتبر (بدون خط تیره): {symbol}")
+    udf_suffix = _STATS_QUOTE_TO_UDF_SUFFIX.get(quote_part.lower())
+    if udf_suffix is None:
+        raise ValueError(f"ارز مقصد ناشناخته در نماد stats: {symbol}")
+
+    if "_" in base_part:
+        prefix, _, coin = base_part.partition("_")
+        return f"{prefix.upper()}_{coin.upper()}{udf_suffix}"
+    return f"{base_part.upper()}{udf_suffix}"
+
 # قید محدودهٔ قیمت (خطای BadPrice)
 MAX_PRICE_DEVIATION_RATIO = 0.30
