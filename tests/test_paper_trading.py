@@ -187,3 +187,155 @@ def test_multiple_tracks_run_independently_same_symbol(tmp_path):
     closed_or_open_resolutions = {t["resolution"] for t in storage.get_open_paper_trades()}
     assert closed_or_open_resolutions == {"15", "240"}
     storage.close()
+
+
+def test_restore_state_rehydrates_open_position_so_exits_are_checked(tmp_path):
+    """بازسازی حافظه — سناریوی واقعی GitHub Actions: چرخهٔ قبلی پوزیشن باز کرده،
+    process تموم شده، و چرخهٔ جدید باید همون پوزیشن رو برای SL/TP چک کنه."""
+    candles = build_trend_series()[:41]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
+
+    # همون چیزی که چرخهٔ قبلی در دیتابیس نوشته (شامل SL/TP)
+    storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"),
+        Decimal("1000000"), "test", stop_loss=Decimal("95"), take_profit=Decimal("120"),
+    )
+    assert track.open_positions == {}, "حافظهٔ اجرای جدید باید از ابتدا خالی باشه"
+
+    runner.restore_state()
+
+    assert "BTCIRT" in track.open_positions
+    position = track.open_positions["BTCIRT"]
+    assert position.stop_loss == Decimal("95")
+    assert position.take_profit == Decimal("120")
+
+    # قیمت فعلی ۹۰ است — زیر حد ضرر ۹۵، پس باید بسته بشه
+    runner._check_exits(track)
+    assert "BTCIRT" not in track.open_positions
+    closed = storage.get_closed_paper_trades()
+    assert len(closed) == 1
+    assert closed[0]["exit_reason"].startswith("برخورد Stop Loss")
+    storage.close()
+
+
+def test_restore_state_restores_capital_from_closed_trades(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    initial_capital = track.capital
+
+    trade_id = storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"),
+        Decimal("1000000"), "test", stop_loss=Decimal("95"), take_profit=Decimal("120"),
+    )
+    storage.close_paper_trade(
+        trade_id, 1_700_003_600, Decimal("120"), Decimal("5000"), Decimal("195000"), "برخورد Take Profit (OCO)"
+    )
+
+    runner.restore_state()
+
+    assert track.capital == initial_capital + Decimal("195000")
+    assert track.open_positions == {}
+    storage.close()
+
+
+def test_restore_state_ignores_trades_from_other_strategy_track(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, resolution="60")
+
+    # پوزیشن باز متعلق به تایم‌فریم دیگه‌ای که این اجرا فعال نیست
+    storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "240", "buy", 1_700_000_000, Decimal("100"),
+        Decimal("1000000"), "test", stop_loss=Decimal("95"), take_profit=Decimal("120"),
+    )
+
+    runner.restore_state()
+
+    assert track.open_positions == {}, "پوزیشن تایم‌فریم دیگه نباید وارد این track بشه"
+    assert len(storage.get_open_paper_trades()) == 1, "و نباید از دیتابیس هم حذف بشه"
+    storage.close()
+
+
+def test_restore_state_skips_legacy_position_without_sl_tp(tmp_path):
+    """معامله‌های بازِ دیتابیس‌های قدیمی (بدون ستون SL/TP) نباید با قیمت اشتباه بسته بشن."""
+    candles = build_trend_series()[:41]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
+
+    storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "legacy"
+    )
+
+    runner.restore_state()
+
+    assert track.open_positions == {}
+    storage.close()
+
+
+def test_open_position_persists_sl_tp_for_next_run(tmp_path):
+    """چرخهٔ اول باید SL/TP رو ذخیره کنه وگرنه چرخهٔ بعدی نمی‌تونه بازسازی کنه."""
+    candles = build_trend_series()[:41]
+    runner, storage, _, _ = make_runner(tmp_path, AlwaysApprove(), candles)
+
+    runner.run_once()
+
+    open_trades = storage.get_open_paper_trades()
+    assert len(open_trades) == 1
+    assert open_trades[0]["stop_loss"] is not None
+    assert open_trades[0]["take_profit"] is not None
+    storage.close()
+
+
+def test_two_consecutive_once_runs_share_state_end_to_end(tmp_path):
+    """سناریوی کامل GitHub Actions: دو اجرای جدا با آبجکت‌های تازه ولی
+    دیتابیس مشترک — اجرای دوم باید پوزیشن اجرای اول رو ببینه و ببنده."""
+    from nobitex_bot.data.storage import Storage
+
+    candles = build_trend_series()[:41]
+    db_path = tmp_path / "shared.sqlite"
+
+    def build_runner(latest_price):
+        storage = Storage(db_path)
+        market_data = MagicMock()
+        market_data.get_ohlc_history.return_value = candles
+        stat = MagicMock()
+        stat.latest = Decimal(latest_price)
+        market_data.get_all_market_stats.return_value = {"BTCIRT": stat}
+        scanner = MagicMock()
+        scan_result = MagicMock()
+        scan_result.symbol = "BTCIRT"
+        scanner.scan.return_value = [scan_result]
+        track = StrategyTrack(
+            strategy=TrendMomentumVolumeStrategy(), resolution="60", capital=Decimal("10000000"),
+            risk_manager=RiskManager(RiskConfig(risk_per_trade_pct=Decimal("0.02"))),
+        )
+        runner = PaperTradingRunner(
+            settings=make_settings(tmp_path), market_data=market_data, scanner=scanner, tracks=[track],
+            order_executor=MagicMock(), storage=storage, approval_gate=AlwaysApprove(),
+        )
+        return runner, storage, track
+
+    # اجرای اول — پوزیشن باز می‌شه
+    runner1, storage1, track1 = build_runner("100.68")
+    runner1.restore_state()
+    runner1.run_once()
+    assert "BTCIRT" in track1.open_positions
+    entry = track1.open_positions["BTCIRT"]
+    first_trade_id = entry.trade_id
+    storage1.close()
+
+    # اجرای دوم — process جدید، حافظهٔ in-memory خالی، قیمت زیر حد ضرر افتاده
+    stop_loss_hit_price = str(entry.stop_loss - Decimal("1"))
+    runner2, storage2, track2 = build_runner(stop_loss_hit_price)
+    assert track2.open_positions == {}, "آبجکت جدید باید حافظهٔ خالی داشته باشه"
+
+    runner2.restore_state()
+    assert track2.open_positions["BTCIRT"].trade_id == first_trade_id, "پوزیشن اجرای قبلی باید بازسازی بشه"
+
+    runner2.run_once()
+
+    # معاملهٔ اجرای قبلی باید با برخورد حد ضرر بسته شده باشه — همون چیزی که
+    # بدون restore_state هیچ‌وقت اتفاق نمی‌افتاد.
+    closed = storage2.get_closed_paper_trades()
+    assert [c["id"] for c in closed] == [first_trade_id]
+    assert closed[0]["exit_reason"].startswith("برخورد Stop Loss")
+    assert Decimal(closed[0]["pnl"]) < 0
+    storage2.close()

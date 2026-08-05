@@ -55,8 +55,15 @@ jobs:
       - name: Save bot memory for next run
         if: always()
         run: |
-          cd data
-          rm -rf .git
+          # با always() اجرا می‌شه، پس ممکنه مرحلهٔ قبلی حتی به ساختن data/ هم نرسیده باشه
+          cd data || { echo "پوشهٔ data ساخته نشده — چیزی برای ذخیره نیست"; exit 0; }
+          # این شاخه در ریپوی عمومی برای همه قابل‌دیدنه — کلیدهای رمزنگاری‌شدهٔ
+          # داشبورد هیچ‌وقت نباید واردش بشن (اینجا از GitHub Secrets استفاده می‌شه).
+          rm -rf .git secrets.enc secrets.salt
+          if [ -z "$(ls -A)" ]; then
+            echo "چیزی برای ذخیره نیست — رد می‌شیم"
+            exit 0
+          fi
           git init -q -b paper-trading-state
           git add -A
           git -c user.email="bot@users.noreply.github.com" -c user.name="paper-trading-bot" \

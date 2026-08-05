@@ -72,9 +72,18 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     entry_reason TEXT,
     exit_reason TEXT,
     client_order_id TEXT,
+    stop_loss TEXT,
+    take_profit TEXT,
     status TEXT NOT NULL DEFAULT 'open'
 );
 """
+
+# ستون‌هایی که بعداً به schema اضافه شدن — دیتابیس‌های قدیمی (که قبل از این
+# تغییر ساخته شدن) موقع باز شدن به‌صورت خودکار ارتقا داده می‌شن.
+_PAPER_TRADE_MIGRATIONS = {
+    "stop_loss": "ALTER TABLE paper_trades ADD COLUMN stop_loss TEXT",
+    "take_profit": "ALTER TABLE paper_trades ADD COLUMN take_profit TEXT",
+}
 
 
 class Storage:
@@ -83,7 +92,14 @@ class Storage:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._conn.executescript(SCHEMA)
+        self._migrate_paper_trades()
         self._conn.commit()
+
+    def _migrate_paper_trades(self) -> None:
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(paper_trades)")}
+        for column, statement in _PAPER_TRADE_MIGRATIONS.items():
+            if column not in existing:
+                self._conn.execute(statement)
 
     def close(self) -> None:
         self._conn.close()
@@ -215,14 +231,24 @@ class Storage:
     def open_paper_trade(
         self, symbol: str, strategy_name: str, resolution: str, direction: str, entry_time: int, entry_price: Decimal,
         size_quote: Decimal, entry_reason: str, client_order_id: str | None = None,
+        stop_loss: Decimal | None = None, take_profit: Decimal | None = None,
     ) -> int:
+        """SL/TP هم ذخیره می‌شن چون بدون‌شون پوزیشن باز بعد از ری‌استارت
+        (یا هر اجرای جدید ``--once``) قابل بازسازی نیست — برای بررسی برخورد
+        حد ضرر/سود در چرخه‌های بعدی لازمن."""
         cursor = self._conn.execute(
             """
             INSERT INTO paper_trades
-                (symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason, client_order_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                (symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason,
+                 client_order_id, stop_loss, take_profit, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
             """,
-            (symbol, strategy_name, resolution, direction, entry_time, str(entry_price), str(size_quote), entry_reason, client_order_id),
+            (
+                symbol, strategy_name, resolution, direction, entry_time, str(entry_price), str(size_quote),
+                entry_reason, client_order_id,
+                None if stop_loss is None else str(stop_loss),
+                None if take_profit is None else str(take_profit),
+            ),
         )
         self._conn.commit()
         return cursor.lastrowid
@@ -241,13 +267,19 @@ class Storage:
         self._conn.commit()
 
     def get_open_paper_trades(self, symbol: str | None = None) -> list[dict]:
-        query = "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason FROM paper_trades WHERE status = 'open'"
+        query = (
+            "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, "
+            "entry_reason, stop_loss, take_profit FROM paper_trades WHERE status = 'open'"
+        )
         params: list[object] = []
         if symbol is not None:
             query += " AND symbol = ?"
             params.append(symbol)
         cursor = self._conn.execute(query, params)
-        keys = ["id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "size_quote", "entry_reason"]
+        keys = [
+            "id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "size_quote",
+            "entry_reason", "stop_loss", "take_profit",
+        ]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
 
     def get_closed_paper_trades(self, strategy_name: str | None = None) -> list[dict]:

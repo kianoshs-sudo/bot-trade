@@ -178,6 +178,10 @@ def main() -> None:
         risk_config_path=settings.data_dir / "risk_config.json",
     )
 
+    # پوزیشن‌های باز/سرمایهٔ چرخه‌های قبلی از دیتابیس برگردونده می‌شن — بدون این،
+    # هر اجرای --once از صفر شروع می‌کرد و پوزیشن‌های باز هیچ‌وقت برای SL/TP چک نمی‌شدن.
+    runner.restore_state()
+
     if args.once:
         logger.info("اجرای یک چرخه (--once) — برای GitHub Actions/cron")
         runner.run_once()

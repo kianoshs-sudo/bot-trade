@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from nobitex_bot.analysis.indicators import MIN_CANDLES_FOR_INDICATORS, candles_to_dataframe, compute_indicators
@@ -105,6 +106,59 @@ class PaperTradingRunner:
                 "PaperTradingRunner فقط روی NOBITEX_ENV=testnet مجازه — فاز ۷ (پول واقعی) "
                 "هنوز نیاز به تایید صریح کاربر داره و فعال نشده"
             )
+
+    def restore_state(self) -> None:
+        """پوزیشن‌های باز و سرمایهٔ هر track رو از دیتابیس بازسازی می‌کنه.
+
+        بدون این، هر اجرای ``--once`` (GitHub Actions/cron) با حافظهٔ خالی
+        شروع می‌شه: پوزیشن‌های بازِ چرخهٔ قبلی هیچ‌وقت برای برخورد SL/TP چک
+        نمی‌شن، سرمایه به مقدار اولیه برمی‌گرده، و همون نماد دوباره باز می‌شه.
+
+        باید دقیقاً یک‌بار بعد از ساختن runner و قبل از اولین ``run_once``
+        صدا زده بشه (``track.capital`` در این لحظه یعنی سرمایهٔ اولیه).
+        """
+        by_label = {track.label: track for track in self.tracks}
+
+        for row in self.storage.get_open_paper_trades():
+            track = by_label.get(f"{row['strategy_name']}@{row['resolution']}")
+            if track is None:
+                continue  # ترکیبی که این اجرا فعال نیست — دست‌نخورده در دیتابیس می‌مونه
+            if row["stop_loss"] is None or row["take_profit"] is None:
+                # معامله‌های باز قدیمی (قبل از افزوده‌شدن ستون‌های SL/TP) قابل
+                # بازسازی نیستن؛ نادیده گرفته می‌شن تا با قیمت اشتباه بسته نشن.
+                logger.warning(
+                    "پوزیشن باز %s (id=%s) بدون SL/TP ذخیره شده — بازسازی نشد", row["symbol"], row["id"]
+                )
+                continue
+            track.open_positions[row["symbol"]] = OpenPosition(
+                trade_id=row["id"],
+                symbol=row["symbol"],
+                strategy_name=row["strategy_name"],
+                direction=row["direction"],
+                entry_price=Decimal(row["entry_price"]),
+                stop_loss=Decimal(row["stop_loss"]),
+                take_profit=Decimal(row["take_profit"]),
+                size_quote=Decimal(row["size_quote"]),
+            )
+
+        # سود/زیان محقق‌شده به سرمایهٔ اولیه اضافه می‌شه، و معامله‌های بسته‌شده
+        # به ترتیب زمانی به RiskManager داده می‌شن تا شمارندهٔ «ضرر روزانه» هم
+        # درست بازسازی بشه (خودش موقع تغییر روز صفر می‌شه).
+        closed = sorted(self.storage.get_closed_paper_trades(), key=lambda r: r["exit_time"] or 0)
+        for row in closed:
+            track = by_label.get(f"{row['strategy_name']}@{row['resolution']}")
+            if track is None or row["pnl"] is None:
+                continue
+            pnl = Decimal(row["pnl"])
+            track.capital += pnl
+            exit_time = row["exit_time"]
+            track.risk_manager.record_closed_trade(
+                pnl,
+                now=datetime.fromtimestamp(exit_time, tz=timezone.utc) if exit_time else None,
+            )
+
+        restored = sum(len(t.open_positions) for t in self.tracks)
+        logger.info("حافظه بازسازی شد: %d پوزیشن باز، %d معاملهٔ بسته‌شده", restored, len(closed))
 
     def run_once(self) -> None:
         self._reload_risk_config_if_configured()
@@ -203,6 +257,7 @@ class PaperTradingRunner:
         trade_id = self.storage.open_paper_trade(
             signal.symbol, track.strategy.name, track.resolution, signal.direction, int(time.time()),
             signal.entry_price_hint, size_quote, signal.reason,
+            stop_loss=signal.stop_loss, take_profit=signal.take_profit,
         )
         track.open_positions[signal.symbol] = OpenPosition(
             trade_id=trade_id,
