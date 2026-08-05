@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -139,6 +140,7 @@ class PaperTradingRunner:
                 stop_loss=Decimal(row["stop_loss"]),
                 take_profit=Decimal(row["take_profit"]),
                 size_quote=Decimal(row["size_quote"]),
+                exit_client_order_id=row.get("exit_client_order_id"),
             )
 
         # سود/زیان محقق‌شده به سرمایهٔ اولیه اضافه می‌شه، و معامله‌های بسته‌شده
@@ -240,7 +242,10 @@ class PaperTradingRunner:
         # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
         # stopLimitPrice کمی بدتر از stopPrice تا حتی در نوسان آنی هم قابل اجرا بمونه
         # (طبق مستندات رسمی: فروش -> price > قیمت بازار > stopPrice/stopLimitPrice).
+        # client_order_id از قبل تولید و ذخیره می‌شه تا چرخه‌های بعدی بتونن
+        # وضعیت واقعی این سفارش رو از خودِ صرافی استعلام کنن (_check_exits).
         exit_side = _opposite(signal.direction)
+        exit_client_order_id = str(uuid.uuid4())
         stop_limit_buffer = signal.stop_loss * STOP_LIMIT_BUFFER_PCT
         stop_limit_price = (
             signal.stop_loss - stop_limit_buffer if exit_side == "sell" else signal.stop_loss + stop_limit_buffer
@@ -252,12 +257,14 @@ class PaperTradingRunner:
             amount,
             signal.take_profit,
             extra_params={"mode": "oco", "stopPrice": signal.stop_loss, "stopLimitPrice": stop_limit_price},
+            client_order_id=exit_client_order_id,
         )
 
         trade_id = self.storage.open_paper_trade(
             signal.symbol, track.strategy.name, track.resolution, signal.direction, int(time.time()),
             signal.entry_price_hint, size_quote, signal.reason,
             stop_loss=signal.stop_loss, take_profit=signal.take_profit,
+            exit_client_order_id=exit_client_order_id,
         )
         track.open_positions[signal.symbol] = OpenPosition(
             trade_id=trade_id,
@@ -268,6 +275,7 @@ class PaperTradingRunner:
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
             size_quote=size_quote,
+            exit_client_order_id=exit_client_order_id,
         )
         logger.info("[%s] پوزیشن جدید باز شد: %s اندازه=%s", track.label, signal.symbol, size_quote)
         if self.decision_logger is not None:
@@ -280,6 +288,17 @@ class PaperTradingRunner:
         stats = self.market_data.get_all_market_stats()
         for symbol, position in list(track.open_positions.items()):
             current_price = stats.get(symbol).latest if symbol in stats else None
+
+            # اول از خودِ صرافی می‌پرسیم سفارش OCO خروج واقعاً اجرا شده یا نه —
+            # قابل‌اعتمادتر از فقط مقایسهٔ قیمت لحظه‌ای، چون قیمت ممکنه بین دو
+            # چرخهٔ ۱۵ دقیقه‌ای به SL/TP بخوره و برگرده، در حالی که صرافی واقعاً
+            # سفارش رو همون لحظه اجرا کرده. اگه استعلام fail بشه یا معلوم نشه،
+            # به منطق قیمتیِ قبلی (fallback امن) برمی‌گردیم.
+            if self._exit_order_filled_on_exchange(position):
+                exit_price, exit_reason = self._resolve_exchange_confirmed_exit(position, current_price)
+                self._close_position(track, position, exit_price, exit_reason)
+                continue
+
             if current_price is None:
                 continue
 
@@ -292,6 +311,56 @@ class PaperTradingRunner:
             exit_price = position.stop_loss if hit_sl else position.take_profit
             exit_reason = "برخورد Stop Loss (OCO)" if hit_sl else "برخورد Take Profit (OCO)"
             self._close_position(track, position, exit_price, exit_reason)
+
+    def _exit_order_filled_on_exchange(self, position: OpenPosition) -> bool:
+        """⚠️ فرمت دقیق status سفارش OCO نوبیتکس روی Testnet واقعی هنوز
+        verify نشده (طبق یادداشت فاز ۶) — این تابع محافظه‌کارانه عمل می‌کنه:
+        اگه استعلام fail بشه، exit_client_order_id نداشته باشیم، یا فرمت
+        پاسخ ناشناخته باشه، False برمی‌گردونه و منطق قیمتیِ همیشگی (که خودش
+        به‌تنهایی هم کار می‌کنه، فقط ممکنه با تاخیر) جایگزین می‌شه."""
+        if not position.exit_client_order_id:
+            return False
+        try:
+            status = self.order_executor.client.get_order_status(client_order_id=position.exit_client_order_id)
+        except Exception:
+            logger.warning(
+                "استعلام وضعیت سفارش خروج %s ناموفق بود — قیمت لحظه‌ای جایگزین می‌شه", position.symbol
+            )
+            return False
+
+        order = status.get("order")
+        if not isinstance(order, dict):
+            return False
+        order_status = str(order.get("status", "")).strip().lower()
+        return order_status in {"done", "filled", "executed", "closed", "inactive"}
+
+    def _resolve_exchange_confirmed_exit(
+        self, position: OpenPosition, current_price: Decimal | None
+    ) -> tuple[Decimal, str]:
+        """صرافی تایید کرده سفارش اجرا شده؛ اینجا فقط تلاش می‌کنیم بفهمیم
+        کدوم سمت (SL یا TP) بوده و قیمت دقیق اجرا رو تخمین بزنیم — چون
+        schema دقیق قیمت واقعی اجرا verify نشده، به‌جای حدس اشتباه، وقتی
+        قیمت لحظه‌ای بین دو حد باشه (دقیقاً سناریوی نوسان‌آنی-و-برگشت)
+        صادقانه به‌عنوان «تخمین» علامت می‌زنیم."""
+        if current_price is not None:
+            hit_sl = (
+                current_price <= position.stop_loss if position.direction == "buy" else current_price >= position.stop_loss
+            )
+            hit_tp = (
+                current_price >= position.take_profit if position.direction == "buy" else current_price <= position.take_profit
+            )
+            if hit_sl and not hit_tp:
+                return position.stop_loss, "برخورد Stop Loss (OCO) — تاییدشده توسط صرافی"
+            if hit_tp and not hit_sl:
+                return position.take_profit, "برخورد Take Profit (OCO) — تاییدشده توسط صرافی"
+
+            dist_to_sl = abs(current_price - position.stop_loss)
+            dist_to_tp = abs(current_price - position.take_profit)
+            if dist_to_sl <= dist_to_tp:
+                return position.stop_loss, "بسته شد توسط صرافی — احتمالاً Stop Loss (قیمت دقیق تخمینیه)"
+            return position.take_profit, "بسته شد توسط صرافی — احتمالاً Take Profit (قیمت دقیق تخمینیه)"
+
+        return position.take_profit, "بسته شد توسط صرافی — قیمت لحظه‌ای در دسترس نبود (تخمینیه)"
 
     def _close_position(self, track: StrategyTrack, position: OpenPosition, exit_price: Decimal, exit_reason: str) -> None:
         if position.direction == "buy":

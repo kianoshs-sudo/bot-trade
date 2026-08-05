@@ -339,3 +339,154 @@ def test_two_consecutive_once_runs_share_state_end_to_end(tmp_path):
     assert closed[0]["exit_reason"].startswith("برخورد Stop Loss")
     assert Decimal(closed[0]["pnl"]) < 0
     storage2.close()
+
+
+def test_check_exits_closes_via_exchange_confirmation_even_when_price_is_between_sl_tp(tmp_path):
+    """سناریوی دقیق نگرانی کاربر: قیمت بین دو چرخهٔ ۱۵ دقیقه‌ای به SL خورده و
+    برگشته — روش قیمتی صرف این رو هرگز نمی‌بینه، ولی صرافی واقعاً اجرا کرده."""
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="105")
+    order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Done"}}
+
+    trade_id = storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "test",
+        stop_loss=Decimal("95"), take_profit=Decimal("120"), exit_client_order_id="exit-abc",
+    )
+    track.open_positions["BTCIRT"] = OpenPosition(
+        trade_id=trade_id, symbol="BTCIRT", strategy_name="trend_momentum_volume", direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("120"), size_quote=Decimal("1000000"),
+        exit_client_order_id="exit-abc",
+    )
+
+    # قیمت لحظه‌ای (۱۰۵) بین SL و TP است — روش قدیمی این رو باز نگه می‌داشت
+    runner._check_exits(track)
+
+    order_executor.client.get_order_status.assert_called_once_with(client_order_id="exit-abc")
+    assert "BTCIRT" not in track.open_positions
+    closed = storage.get_closed_paper_trades()
+    assert len(closed) == 1
+    assert "صرافی" in closed[0]["exit_reason"]
+    storage.close()
+
+
+def test_check_exits_labels_exchange_confirmed_stop_loss_correctly(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
+    order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Done"}}
+
+    trade_id = storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "test",
+        stop_loss=Decimal("95"), take_profit=Decimal("120"), exit_client_order_id="exit-abc",
+    )
+    track.open_positions["BTCIRT"] = OpenPosition(
+        trade_id=trade_id, symbol="BTCIRT", strategy_name="trend_momentum_volume", direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("120"), size_quote=Decimal("1000000"),
+        exit_client_order_id="exit-abc",
+    )
+
+    runner._check_exits(track)
+
+    closed = storage.get_closed_paper_trades()
+    assert closed[0]["exit_reason"].startswith("برخورد Stop Loss")
+    assert Decimal(closed[0]["exit_price"]) == Decimal("95")
+    storage.close()
+
+
+def test_check_exits_falls_back_to_price_check_when_exchange_query_fails(tmp_path):
+    """اگه استعلام وضعیت از صرافی خطا بده، نباید کل چرخه بشکنه — باید به روش
+    قیمتی قبلی (که خودش تست‌شده و قابل‌اعتماده) برگرده."""
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
+    order_executor.client.get_order_status.side_effect = RuntimeError("network error")
+
+    trade_id = storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "test",
+        stop_loss=Decimal("95"), take_profit=Decimal("120"), exit_client_order_id="exit-abc",
+    )
+    track.open_positions["BTCIRT"] = OpenPosition(
+        trade_id=trade_id, symbol="BTCIRT", strategy_name="trend_momentum_volume", direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("120"), size_quote=Decimal("1000000"),
+        exit_client_order_id="exit-abc",
+    )
+
+    runner._check_exits(track)
+
+    assert "BTCIRT" not in track.open_positions
+    closed = storage.get_closed_paper_trades()
+    assert closed[0]["exit_reason"] == "برخورد Stop Loss (OCO)"
+    storage.close()
+
+
+def test_check_exits_keeps_position_when_exchange_reports_still_active(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="105")
+    order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Active"}}
+
+    trade_id = storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "test",
+        stop_loss=Decimal("95"), take_profit=Decimal("120"), exit_client_order_id="exit-abc",
+    )
+    track.open_positions["BTCIRT"] = OpenPosition(
+        trade_id=trade_id, symbol="BTCIRT", strategy_name="trend_momentum_volume", direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("120"), size_quote=Decimal("1000000"),
+        exit_client_order_id="exit-abc",
+    )
+
+    runner._check_exits(track)
+
+    assert "BTCIRT" in track.open_positions
+    storage.close()
+
+
+def test_open_position_generates_and_persists_exit_client_order_id(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
+
+    runner.run_once()
+
+    position = track.open_positions["BTCIRT"]
+    assert position.exit_client_order_id is not None
+
+    open_trades = storage.get_open_paper_trades()
+    assert open_trades[0]["exit_client_order_id"] == position.exit_client_order_id
+
+    # همون ID باید به submit_order سفارش OCO پاس داده شده باشه
+    oco_calls = [c for c in order_executor.submit_order.call_args_list if c.kwargs.get("client_order_id")]
+    assert len(oco_calls) == 1
+    assert oco_calls[0].kwargs["client_order_id"] == position.exit_client_order_id
+    storage.close()
+
+
+def test_restore_state_recovers_exit_client_order_id(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
+
+    storage.open_paper_trade(
+        "BTCIRT", "trend_momentum_volume", "60", "buy", 1_700_000_000, Decimal("100"), Decimal("1000000"), "test",
+        stop_loss=Decimal("95"), take_profit=Decimal("120"), exit_client_order_id="exit-xyz",
+    )
+
+    runner.restore_state()
+
+    assert track.open_positions["BTCIRT"].exit_client_order_id == "exit-xyz"
+    storage.close()
+
+
+def test_submit_order_uses_provided_client_order_id_for_exit_order(tmp_path):
+    from unittest.mock import MagicMock
+
+    from nobitex_bot.data.storage import Storage
+    from nobitex_bot.execution.order_executor import OrderExecutor
+
+    client = MagicMock()
+    client.place_order.return_value = {"status": "ok", "order": {"id": 1}}
+    storage = Storage(tmp_path / "t.sqlite")
+    executor = OrderExecutor(client=client, storage=storage)
+
+    executor.submit_order("BTCIRT", "sell", "oco", Decimal("1"), Decimal("100"), client_order_id="my-fixed-id")
+
+    _, kwargs = client.place_order.call_args
+    assert kwargs["client_order_id"] == "my-fixed-id"
+    intent = storage.get_order_intent("my-fixed-id")
+    assert intent is not None
+    storage.close()

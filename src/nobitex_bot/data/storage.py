@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     client_order_id TEXT,
     stop_loss TEXT,
     take_profit TEXT,
+    exit_client_order_id TEXT,
     status TEXT NOT NULL DEFAULT 'open'
 );
 """
@@ -83,6 +84,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (
 _PAPER_TRADE_MIGRATIONS = {
     "stop_loss": "ALTER TABLE paper_trades ADD COLUMN stop_loss TEXT",
     "take_profit": "ALTER TABLE paper_trades ADD COLUMN take_profit TEXT",
+    "exit_client_order_id": "ALTER TABLE paper_trades ADD COLUMN exit_client_order_id TEXT",
 }
 
 
@@ -232,22 +234,26 @@ class Storage:
         self, symbol: str, strategy_name: str, resolution: str, direction: str, entry_time: int, entry_price: Decimal,
         size_quote: Decimal, entry_reason: str, client_order_id: str | None = None,
         stop_loss: Decimal | None = None, take_profit: Decimal | None = None,
+        exit_client_order_id: str | None = None,
     ) -> int:
         """SL/TP هم ذخیره می‌شن چون بدون‌شون پوزیشن باز بعد از ری‌استارت
         (یا هر اجرای جدید ``--once``) قابل بازسازی نیست — برای بررسی برخورد
-        حد ضرر/سود در چرخه‌های بعدی لازمن."""
+        حد ضرر/سود در چرخه‌های بعدی لازمن. ``exit_client_order_id`` هم برای
+        همین دلیل ذخیره می‌شه: بدونش، چرخهٔ بعدی نمی‌تونه از خودِ صرافی
+        بپرسه سفارش OCO خروج واقعاً اجرا شده یا نه."""
         cursor = self._conn.execute(
             """
             INSERT INTO paper_trades
                 (symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason,
-                 client_order_id, stop_loss, take_profit, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                 client_order_id, stop_loss, take_profit, exit_client_order_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
             """,
             (
                 symbol, strategy_name, resolution, direction, entry_time, str(entry_price), str(size_quote),
                 entry_reason, client_order_id,
                 None if stop_loss is None else str(stop_loss),
                 None if take_profit is None else str(take_profit),
+                exit_client_order_id,
             ),
         )
         self._conn.commit()
@@ -269,7 +275,7 @@ class Storage:
     def get_open_paper_trades(self, symbol: str | None = None) -> list[dict]:
         query = (
             "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, "
-            "entry_reason, stop_loss, take_profit FROM paper_trades WHERE status = 'open'"
+            "entry_reason, stop_loss, take_profit, exit_client_order_id FROM paper_trades WHERE status = 'open'"
         )
         params: list[object] = []
         if symbol is not None:
@@ -278,7 +284,7 @@ class Storage:
         cursor = self._conn.execute(query, params)
         keys = [
             "id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "size_quote",
-            "entry_reason", "stop_loss", "take_profit",
+            "entry_reason", "stop_loss", "take_profit", "exit_client_order_id",
         ]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
 

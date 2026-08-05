@@ -34,8 +34,12 @@ class OrderExecutor:
         amount: Decimal,
         price: Decimal | None = None,
         extra_params: dict[str, Any] | None = None,
+        client_order_id: str | None = None,
     ) -> dict[str, Any]:
-        client_order_id = str(uuid.uuid4())
+        """اگه ``client_order_id`` از قبل مشخص بشه (مثلاً برای سفارش OCO خروج،
+        تا بعداً بشه با همین ID وضعیتش رو از صرافی استعلام کرد)، همون استفاده
+        می‌شه؛ وگرنه مثل قبل یک UUID تازه تولید می‌شه."""
+        client_order_id = client_order_id or str(uuid.uuid4())
         now_ts = int(time.time())
         self.storage.record_order_intent(client_order_id, symbol, side, order_type, amount, price, now_ts)
 
