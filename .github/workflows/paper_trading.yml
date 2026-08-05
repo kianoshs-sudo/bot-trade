@@ -39,7 +39,7 @@ jobs:
 
       - name: Upload logs (if any errors)
         if: failure()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: paper-trading-logs
           path: logs/
