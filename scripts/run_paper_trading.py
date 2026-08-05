@@ -38,6 +38,7 @@ from nobitex_bot.notifications.telegram import TelegramNotifier
 from nobitex_bot.paper_trading.approval import AutoApproveGate, ManualCLIApprovalGate
 from nobitex_bot.paper_trading.messaging_approval import MessagingApprovalGate
 from nobitex_bot.paper_trading.runner import PaperTradingRunner, StrategyTrack
+from nobitex_bot.paper_trading.status_command import handle_status_command
 from nobitex_bot.risk.config_store import load_risk_config
 from nobitex_bot.risk.risk_manager import RiskManager
 from nobitex_bot.security.key_storage import SecretStore, WrongMasterPasswordError
@@ -165,6 +166,9 @@ def main() -> None:
     ]
     logger.info("تعداد ترکیب استراتژی×تایم‌فریم فعال: %d (%s)", len(tracks), ", ".join(t.label for t in tracks))
 
+    status_snapshot_path = settings.data_dir / "status.json"
+    decision_logger = DecisionLogger(settings.data_dir / "decisions.jsonl")
+
     runner = PaperTradingRunner(
         settings=settings,
         market_data=market_data,
@@ -173,14 +177,24 @@ def main() -> None:
         order_executor=order_executor,
         storage=storage,
         approval_gate=approval_gate,
-        decision_logger=DecisionLogger(settings.data_dir / "decisions.jsonl"),
-        status_snapshot_path=settings.data_dir / "status.json",
+        decision_logger=decision_logger,
+        status_snapshot_path=status_snapshot_path,
         risk_config_path=settings.data_dir / "risk_config.json",
     )
 
     # پوزیشن‌های باز/سرمایهٔ چرخه‌های قبلی از دیتابیس برگردونده می‌شن — بدون این،
     # هر اجرای --once از صفر شروع می‌کرد و پوزیشن‌های باز هیچ‌وقت برای SL/TP چک نمی‌شدن.
     runner.restore_state()
+
+    # دستور «وضعیت»/«داشبورد» — چون داشبورد وب روی GitHub Actions بالا نمی‌مونه،
+    # این میان‌بر سبک اجازه می‌ده کاربر از داخل تلگرام/بله خلاصهٔ وضعیت رو بخواد.
+    if isinstance(approval_gate, MessagingApprovalGate):
+        handle_status_command(
+            notifier=approval_gate.notifier,
+            status_path=status_snapshot_path,
+            decision_logger=decision_logger,
+            offset_path=settings.data_dir / "status_command_offset.txt",
+        )
 
     if args.once:
         logger.info("اجرای یک چرخه (--once) — برای GitHub Actions/cron")

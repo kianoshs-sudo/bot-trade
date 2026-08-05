@@ -5,6 +5,10 @@ on:
     - cron: '*/15 * * * *'  # Run every 15 minutes
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
+concurrency:
+  group: paper-trading   # اگه اجرای قبلی هنوز تموم نشده، اجرای جدید صف می‌شه نه هم‌زمان —
+  cancel-in-progress: false  # وگرنه دو اجرای هم‌زمان روی شاخهٔ paper-trading-state رقابت می‌کنن
+
 permissions:
   contents: write   # لازم برای ذخیرهٔ حافظهٔ ربات در شاخهٔ paper-trading-state
 
