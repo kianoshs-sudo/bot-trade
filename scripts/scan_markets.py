@@ -30,6 +30,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resolution", default="60", choices=ALLOWED_RESOLUTIONS)
     parser.add_argument("--lookback", type=int, default=200, help="تعداد کندل برای محاسبهٔ اندیکاتورها")
     parser.add_argument("--top", type=int, default=10, help="تعداد فرصت‌های برتر برای نمایش")
+    parser.add_argument(
+        "--max-symbols", type=int, default=None,
+        help="فقط N بازار پرحجم‌تر رو تحلیل کن (پیش‌فرض: بدون محدودیت — همهٔ بازارها، چون این ابزار دستیه نه حلقهٔ ۱۵ دقیقه‌ای)",
+    )
     return parser.parse_args()
 
 
@@ -41,7 +45,9 @@ def main() -> None:
     client = NobitexClient(settings=settings)
     storage = Storage(settings.data_dir / "market_data.sqlite")
     service = MarketDataService(client=client, storage=storage)
-    scanner = MarketScanner(market_data=service, resolution=args.resolution, lookback_candles=args.lookback)
+    scanner = MarketScanner(
+        market_data=service, resolution=args.resolution, lookback_candles=args.lookback, max_symbols=args.max_symbols,
+    )
 
     results = scanner.scan()
     logger.info("تعداد بازارهای بررسی‌شده: %d", len(results))

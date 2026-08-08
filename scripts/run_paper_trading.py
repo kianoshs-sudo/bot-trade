@@ -55,6 +55,11 @@ def parse_args() -> argparse.Namespace:
         help="یک یا چند تایم‌فریم با کاما جدا شده (مثل 15,60,240) — هر ترکیب استراتژی×تایم‌فریم یک حساب مجازی مستقل می‌شه",
     )
     parser.add_argument("--scan-resolution", default="60", choices=ALLOWED_RESOLUTIONS, help="تایم‌فریم مرجع برای رتبه‌بندی فرصت‌ها")
+    parser.add_argument(
+        "--max-symbols", type=int, default=40,
+        help="فقط N بازار پرحجم‌تر رو تحلیل کن — بدون این محدودیت، اسکن همهٔ بازارهای نوبیتکس "
+        "به‌خاطر rate limit سخت‌گیر (۲۰ درخواست کندل در دقیقه) می‌تونه یک چرخه رو ساعت‌ها طول بده",
+    )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument("--initial-capital", type=float, default=10_000_000, help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم")
     parser.add_argument(
@@ -130,7 +135,7 @@ def main() -> None:
 
     storage = Storage(settings.data_dir / "paper_trading.sqlite")
     market_data = MarketDataService(client=market_client, storage=storage)
-    scanner = MarketScanner(market_data=market_data, resolution=args.scan_resolution)
+    scanner = MarketScanner(market_data=market_data, resolution=args.scan_resolution, max_symbols=args.max_symbols)
     order_executor = OrderExecutor(client=trading_client, storage=storage)
 
     if args.approval == "manual":

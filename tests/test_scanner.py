@@ -135,3 +135,56 @@ def test_scan_explicit_symbols_still_use_udf_format_directly():
 
     assert len(results) == 1
     assert results[0].symbol == "BTCIRT"
+
+
+def test_scan_limits_to_top_n_symbols_by_volume():
+    """باگ عملکردی واقعی: rate limit نوبیتکس (۲۰ کندل در دقیقه) یعنی اسکن
+    همهٔ چند صد بازار می‌تونست یک چرخه رو ساعت‌ها طول بده (مشاهده‌شده در
+    اجراهای واقعی: ۸۰-۱۴۰ دقیقه). فقط پرحجم‌ترین‌ها باید تحلیل بشن."""
+    candles = make_trending_candles(60, 100.0, direction=1, accel=0.05)
+
+    market_data = make_market_data_mock(
+        candles_by_symbol={"AIRT": candles, "BIRT": candles, "CIRT": candles},
+        stats_by_symbol={
+            "a-rls": stat("a-rls", "100", "1"),       # کم‌حجم‌ترین
+            "b-rls": stat("b-rls", "100", "1000"),
+            "c-rls": stat("c-rls", "100", "1000000"),  # پرحجم‌ترین
+        },
+    )
+    scanner = MarketScanner(market_data=market_data, resolution="60", lookback_candles=60, max_symbols=2)
+
+    results = scanner.scan()
+
+    analyzed_symbols = {r.symbol for r in results}
+    assert analyzed_symbols == {"CIRT", "BIRT"}, "باید فقط ۲ بازار پرحجم‌تر تحلیل بشه، نه کم‌حجم‌ترین"
+    assert market_data.get_ohlc_history.call_count == 2
+
+
+def test_scan_max_symbols_none_analyzes_everything():
+    candles = make_trending_candles(60, 100.0, direction=1, accel=0.05)
+    market_data = make_market_data_mock(
+        candles_by_symbol={"AIRT": candles, "BIRT": candles},
+        stats_by_symbol={"a-rls": stat("a-rls", "100", "1"), "b-rls": stat("b-rls", "100", "1000")},
+    )
+    scanner = MarketScanner(market_data=market_data, resolution="60", lookback_candles=60, max_symbols=None)
+
+    results = scanner.scan()
+
+    assert {r.symbol for r in results} == {"AIRT", "BIRT"}
+
+
+def test_scan_explicit_symbols_bypass_max_symbols_cap():
+    candles = make_trending_candles(60, 100.0, direction=1, accel=0.05)
+    market_data = make_market_data_mock(
+        candles_by_symbol={"AIRT": candles, "BIRT": candles, "CIRT": candles},
+        stats_by_symbol={
+            "a-rls": stat("a-rls", "100", "1"),
+            "b-rls": stat("b-rls", "100", "1000"),
+            "c-rls": stat("c-rls", "100", "1000000"),
+        },
+    )
+    scanner = MarketScanner(market_data=market_data, resolution="60", lookback_candles=60, max_symbols=1)
+
+    results = scanner.scan(symbols=["AIRT", "BIRT", "CIRT"])
+
+    assert {r.symbol for r in results} == {"AIRT", "BIRT", "CIRT"}, "لیست صریح نباید محدود بشه"

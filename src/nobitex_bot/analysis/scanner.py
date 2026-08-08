@@ -59,7 +59,17 @@ class MarketScanner:
         weight_volatility: float = 0.3,
         weight_volume: float = 0.3,
         weight_signal: float = 0.4,
+        max_symbols: int | None = 40,
     ) -> None:
+        """``max_symbols``: قید rate limit نوبیتکس برای کندل تاریخی (۲۰
+        درخواست در دقیقه، محافظه‌کارانه چون مستند دقیقی در دسترس نبود) به این
+        معنیه که اسکن *همهٔ* بازارهای نوبیتکس (چند صد نماد، شامل بازارهای
+        کم‌حجم بی‌فایده) یک چرخه رو می‌تونه ساعت‌ها طول بده — دقیقاً چیزی که
+        در اولین اجراهای واقعی روی GitHub Actions اتفاق افتاد (هر اجرا ۸۰-۱۴۰
+        دقیقه). قبل از گرفتن کندل، فقط ``max_symbols`` بازار با بیشترین حجم
+        معاملهٔ اخیر (``volumeDst``) تحلیل می‌شن — هم منطقی‌تره (بازارهای
+        کم‌حجم فرصت معاملاتی قابل‌اتکایی نیستن) هم چرخه رو در چند دقیقه نگه
+        می‌داره. ``None`` یعنی بدون محدودیت (رفتار قبلی، فقط برای تست/دیباگ)."""
         if resolution == "1":
             raise ValueError("resolution=1 مجاز نیست — اسکالپ ممنوعه طبق سند پروژه")
         self.market_data = market_data
@@ -68,6 +78,7 @@ class MarketScanner:
         self.weight_volatility = weight_volatility
         self.weight_volume = weight_volume
         self.weight_signal = weight_signal
+        self.max_symbols = max_symbols
 
     def _analyze_symbol(self, symbol: str, last_price: Decimal, volume_dst: Decimal) -> ScanResult | None:
         span_seconds = RESOLUTION_SECONDS[self.resolution] * self.lookback_candles
@@ -119,7 +130,13 @@ class MarketScanner:
                 udf_symbol = raw_symbol  # از قبل به فرمت udf بوده (مثلاً تست‌ها یا فراخوانی مستقیم)
             udf_stats[udf_symbol] = stat
 
-        target_symbols = symbols if symbols is not None else list(udf_stats.keys())
+        if symbols is not None:
+            target_symbols = symbols
+        else:
+            ranked_by_volume = sorted(
+                udf_stats.keys(), key=lambda s: udf_stats[s].volume_dst or Decimal(0), reverse=True
+            )
+            target_symbols = ranked_by_volume[: self.max_symbols] if self.max_symbols is not None else ranked_by_volume
 
         results: list[ScanResult] = []
         for symbol in target_symbols:
