@@ -174,6 +174,20 @@ class NobitexClient:
                 time.sleep(backoff)
                 continue
 
+            if 400 <= response.status_code < 500:
+                # قبل از raise_for_status عمومی، بدنهٔ پاسخ رو می‌خونیم — نوبیتکس
+                # روی خطاهای ۴xx معمولاً code/message توضیحی برمی‌گردونه که با
+                # HTTPError عمومی (بدون بدنه) کاملاً گم می‌شد و عیب‌یابی رو
+                # غیرممکن می‌کرد (دقیقاً چیزی که اولین اجرای واقعی رو کور کرد).
+                try:
+                    error_body = response.json()
+                except ValueError:
+                    error_body = {}
+                if isinstance(error_body, dict) and (error_body.get("message") or error_body.get("code")):
+                    raise NobitexAPIError(
+                        error_body.get("code", f"HTTP{response.status_code}"), error_body.get("message", "")
+                    )
+
             response.raise_for_status()
             data = response.json(parse_float=Decimal)
             if isinstance(data, dict) and data.get("status") == "failed":

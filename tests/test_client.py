@@ -95,6 +95,32 @@ def test_429_backoff_from_server_is_capped_to_prevent_indefinite_hang(settings, 
     assert slept == [60.0]
 
 
+def test_400_response_surfaces_nobitex_error_body_instead_of_generic_http_error(settings):
+    """قبل از این فیکس، خطای ۴۰۰ فقط یک HTTPError عمومی بدون بدنه بود —
+    پیام دقیق نوبیتکس (چرا رد شد) کاملاً گم می‌شد. این دقیقاً چیزیه که
+    عیب‌یابی اولین اجرای واقعی روی GitHub Actions رو کور کرده بود."""
+    session = MagicMock()
+    session.request.return_value = make_response(
+        400, {"status": "failed", "code": "InvalidSymbol", "message": "نماد یافت نشد"}
+    )
+    client = NobitexClient(settings=settings, session=session)
+
+    with pytest.raises(NobitexAPIError) as exc_info:
+        client.get_market_stats()
+
+    assert exc_info.value.code == "InvalidSymbol"
+    assert exc_info.value.message == "نماد یافت نشد"
+
+
+def test_400_response_without_error_body_falls_back_to_generic_http_error(settings):
+    session = MagicMock()
+    session.request.return_value = make_response(400, {})
+    client = NobitexClient(settings=settings, session=session)
+
+    with pytest.raises(Exception):
+        client.get_market_stats()
+
+
 def test_api_error_raised_on_failed_status(settings):
     session = MagicMock()
     session.request.return_value = make_response(200, {"status": "failed", "code": "SmallOrder", "message": "too small"})
