@@ -10,6 +10,7 @@ data/secrets.salt
 data/risk_config.json
 data/status.json
 data/decisions.jsonl
+data/status_command_offset.txt
 *.log
 .pytest_cache/
 .mypy_cache/
