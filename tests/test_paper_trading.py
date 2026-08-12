@@ -542,6 +542,10 @@ def test_run_once_records_cycle_duration_in_status_snapshot(tmp_path):
     scanner = MagicMock()
     scan_result = MagicMock()
     scan_result.symbol = "BTCIRT"
+    scan_result.last_price = Decimal("100.68")
+    scan_result.signal_direction = "bullish"
+    scan_result.signal_strength = 0.8
+    scan_result.composite_score = 0.75
     scanner.scan.return_value = [scan_result]
 
     track = StrategyTrack(strategy=TrendMomentumVolumeStrategy(), resolution="60", capital=Decimal("10000000"))
@@ -563,6 +567,15 @@ def test_run_once_records_cycle_duration_in_status_snapshot(tmp_path):
     data = json.loads(status_path.read_text(encoding="utf-8"))
     assert data["cycle_duration_seconds"] is not None
     assert data["cycle_duration_seconds"] >= 0
+    assert data["watchlist"] == [
+        {
+            "symbol": "BTCIRT",
+            "last_price": "100.68",
+            "signal_direction": "bullish",
+            "signal_strength": 0.8,
+            "composite_score": 0.75,
+        }
+    ]
     storage.close()
 
 

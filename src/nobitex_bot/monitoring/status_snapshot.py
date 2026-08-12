@@ -12,7 +12,19 @@ from pathlib import Path
 from typing import Any
 
 
-def write_status_snapshot(path: Path, tracks: list[Any], cycle_duration_seconds: float | None = None) -> None:
+MAX_WATCHLIST_ENTRIES = 20
+
+
+def write_status_snapshot(
+    path: Path,
+    tracks: list[Any],
+    cycle_duration_seconds: float | None = None,
+    watchlist: list[Any] | None = None,
+) -> None:
+    """``watchlist``: نتیجهٔ ``MarketScanner.scan()`` (لیست ``ScanResult``، از
+    قبل بر اساس امتیاز ترکیبی نزولی مرتب‌شده) — بدون این، هیچ‌جا معلوم نبود
+    ربات دقیقاً این چرخه روی کدوم بازارها داره تصمیم می‌گیره؛ فقط تعداد
+    پوزیشن باز دیده می‌شد، نه خودِ نمادها."""
     data = {
         "updated_at": int(time.time()),
         "cycle_duration_seconds": cycle_duration_seconds,
@@ -23,9 +35,20 @@ def write_status_snapshot(path: Path, tracks: list[Any], cycle_duration_seconds:
                 "resolution": track.resolution,
                 "capital": str(track.capital),
                 "open_positions": len(track.open_positions),
+                "open_position_symbols": sorted(track.open_positions.keys()),
                 "daily_loss_halted": track.risk_manager.is_daily_loss_limit_hit(track.capital),
             }
             for track in tracks
+        ],
+        "watchlist": [
+            {
+                "symbol": r.symbol,
+                "last_price": str(r.last_price),
+                "signal_direction": r.signal_direction,
+                "signal_strength": r.signal_strength,
+                "composite_score": r.composite_score,
+            }
+            for r in (watchlist or [])[:MAX_WATCHLIST_ENTRIES]
         ],
     }
     path = Path(path)

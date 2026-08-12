@@ -1,3 +1,6 @@
+from decimal import Decimal
+from unittest.mock import MagicMock
+
 import pytest
 
 from nobitex_bot.config import Settings
@@ -89,6 +92,39 @@ def test_trades_page_renders_empty_state(app_client):
     response = client.get("/trades")
 
     assert response.status_code == 200
+
+
+def test_index_shows_open_position_symbols_and_watchlist(app_client):
+    """قبلاً فقط تعداد پوزیشن باز دیده می‌شد، نه خودِ نماد؛ و هیچ‌جا معلوم
+    نبود ربات این چرخه دقیقاً روی کدوم بازارها داره تصمیم می‌گیره."""
+    from nobitex_bot.monitoring.status_snapshot import write_status_snapshot
+
+    client, settings = app_client
+
+    track = MagicMock()
+    track.label = "trend_momentum_volume@60"
+    track.strategy.name = "trend_momentum_volume"
+    track.resolution = "60"
+    track.capital = Decimal("10000000")
+    track.open_positions = {"BTCIRT": object()}
+    track.risk_manager.is_daily_loss_limit_hit.return_value = False
+
+    scan_result = MagicMock()
+    scan_result.symbol = "ETHIRT"
+    scan_result.last_price = Decimal("50.5")
+    scan_result.signal_direction = "bearish"
+    scan_result.signal_strength = 0.5
+    scan_result.composite_score = 0.6
+
+    write_status_snapshot(settings.data_dir / "status.json", [track], watchlist=[scan_result])
+
+    client.post("/login", data={"password": "pw"})
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "BTC/IRT".encode() in response.data
+    assert "ETH/IRT".encode() in response.data
+    assert "بازارهای زیر نظر".encode() in response.data
 
 
 def test_index_shows_data_coverage_panel(app_client):
