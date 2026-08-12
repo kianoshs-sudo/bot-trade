@@ -12,12 +12,15 @@ Offset پیام‌های خونده‌شده روی دیسک (``data/``) ذخی�
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from nobitex_bot.monitoring.decision_log import DecisionLogger
 from nobitex_bot.monitoring.status_snapshot import read_status_snapshot
 from nobitex_bot.notifications.base import Notifier
+
+logger = logging.getLogger(__name__)
 
 STATUS_KEYWORDS = ("وضعیت", "داشبورد", "status", "/status")
 
@@ -66,9 +69,18 @@ def handle_status_command(
     offset_path: Path,
 ) -> bool:
     """پیام‌های جدید رو چک می‌کنه؛ اگه «وضعیت»/«داشبورد» بود، خلاصهٔ وضعیت رو
-    جواب می‌ده. ``True`` برمی‌گردونه یعنی پیام وضعیت فرستاده شد."""
+    جواب می‌ده. ``True`` برمی‌گردونه یعنی پیام وضعیت فرستاده شد.
+
+    عمداً لاگ INFO می‌ده (حتی وقتی هیچ پیامی نیست) — چون قبلاً این تابع کاملاً
+    ساکت بود و وقتی کاربر می‌گفت «پیامی جواب نیومد»، هیچ راهی برای فهمیدن
+    اینکه پیامش اصلاً به سرور تلگرام رسیده یا نه، از لاگ GitHub Actions
+    وجود نداشت."""
     last_offset = _read_offset(offset_path)
     updates = notifier.get_updates(offset=last_offset)
+    logger.info(
+        "دستور وضعیت: offset قبلی=%s، %d پیام جدید از %s دریافت شد",
+        last_offset, len(updates), notifier.name,
+    )
     if not updates:
         return False
 
@@ -77,6 +89,7 @@ def handle_status_command(
     for update in updates:
         new_offset = update.get("update_id", 0) + 1
         text = (update.get("message", {}).get("text") or "").strip().lower()
+        logger.info("دستور وضعیت: پیام دریافتی (update_id=%s): %r", update.get("update_id"), text)
         if text in STATUS_KEYWORDS:
             should_reply = True
 
@@ -86,6 +99,7 @@ def handle_status_command(
     if should_reply:
         status = read_status_snapshot(status_path)
         decisions = decision_logger.read_recent(limit=5)
-        notifier.send_message(format_status_message(status, decisions))
+        sent = notifier.send_message(format_status_message(status, decisions))
+        logger.info("دستور وضعیت: پاسخ ارسال شد = %s", sent)
 
     return should_reply
