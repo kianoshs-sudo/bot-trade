@@ -88,8 +88,14 @@ def handle_status_command(
     should_reply = False
     for update in updates:
         new_offset = update.get("update_id", 0) + 1
-        text = (update.get("message", {}).get("text") or "").strip().lower()
-        logger.info("دستور وضعیت: پیام دریافتی (update_id=%s): %r", update.get("update_id"), text)
+        message = update.get("message", {})
+        text = (message.get("text") or "").strip().lower()
+        chat_id = message.get("chat", {}).get("id")
+        logger.info(
+            "دستور وضعیت: پیام دریافتی (update_id=%s, chat_id=%s): %r — "
+            "این chat_id رو با مقدار GitHub Secret به‌نام TELEGRAM_CHAT_ID مقایسه کن",
+            update.get("update_id"), chat_id, text,
+        )
         if text in STATUS_KEYWORDS:
             should_reply = True
 

@@ -45,8 +45,22 @@ class TelegramLikeNotifier(Notifier):
             )
             response.raise_for_status()
             return True
-        except requests.RequestException:
-            logger.exception("ارسال پیام از طریق %s ناموفق بود", self.name)
+        except requests.RequestException as exc:
+            # پیام خطای HTTPError خودش شامل توضیح تلگرام نیست (فقط کد وضعیت)،
+            # ولی بدنهٔ پاسخ معمولاً دلیل دقیق رو می‌گه (مثلاً «chat not found»
+            # یا «bot was blocked by the user») — بدون این، فقط کد ۴۰۳/۴۰۰
+            # می‌دیدیم و باید حدس می‌زدیم دلیلش چیه.
+            body_desc = None
+            response_obj = getattr(exc, "response", None)
+            if response_obj is not None:
+                try:
+                    body_desc = response_obj.json().get("description")
+                except ValueError:
+                    body_desc = response_obj.text[:200] if response_obj.text else None
+            logger.error(
+                "ارسال پیام از طریق %s ناموفق بود (chat_id=%s): %s — توضیح تلگرام: %s",
+                self.name, self.chat_id, exc, body_desc,
+            )
             return False
 
     def get_updates(self, offset: int | None = None) -> list[dict[str, Any]]:

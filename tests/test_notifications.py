@@ -37,6 +37,32 @@ def test_send_message_failure_returns_false():
         assert notifier.send_message("hello") is False
 
 
+def test_send_message_failure_logs_telegram_error_description(caplog):
+    """سناریوی واقعی تولید: تلگرام با ۴۰۳ رد کرد، ولی HTTPError خام فقط کد
+    وضعیت رو داشت — بدون خوندن بدنهٔ پاسخ، هیچ‌وقت نمی‌فهمیدیم چرا (مثلاً
+    chat_id اشتباهه یا کاربر بات رو بلاک کرده)."""
+    import requests
+
+    notifier = TelegramNotifier(token="t", chat_id="wrong-chat-id")
+
+    error_response = MagicMock()
+    error_response.json.return_value = {"ok": False, "error_code": 403, "description": "Forbidden: bot was blocked by the user"}
+    error_response.text = '{"description": "Forbidden: bot was blocked by the user"}'
+    http_error = requests.exceptions.HTTPError("403 Client Error")
+    http_error.response = error_response
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status.side_effect = http_error
+
+    with patch("nobitex_bot.notifications.base.requests.post", return_value=mock_response):
+        with caplog.at_level("ERROR"):
+            result = notifier.send_message("test")
+
+    assert result is False
+    assert "wrong-chat-id" in caplog.text
+    assert "Forbidden: bot was blocked by the user" in caplog.text
+
+
 def test_get_updates_parses_result_list():
     notifier = TelegramNotifier(token="t", chat_id="c")
     payload = {"result": [{"update_id": 1, "message": {"text": "تایید"}}]}
