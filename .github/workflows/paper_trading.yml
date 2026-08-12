@@ -54,7 +54,7 @@ jobs:
           NOBITEX_API_SECRET: ${{ secrets.NOBITEX_API_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/run_paper_trading.py --once --approval messaging
+        run: python scripts/run_paper_trading.py --once --approval notify
 
       - name: Save bot memory for next run
         if: always()

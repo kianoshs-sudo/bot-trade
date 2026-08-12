@@ -37,7 +37,7 @@ from nobitex_bot.notifications.bale import BaleNotifier
 from nobitex_bot.notifications.composite import CompositeNotifier
 from nobitex_bot.notifications.telegram import TelegramNotifier
 from nobitex_bot.paper_trading.approval import AutoApproveGate, ManualCLIApprovalGate
-from nobitex_bot.paper_trading.messaging_approval import MessagingApprovalGate
+from nobitex_bot.paper_trading.messaging_approval import MessagingApprovalGate, NotifyingAutoApproveGate
 from nobitex_bot.paper_trading.runner import PaperTradingRunner, StrategyTrack
 from nobitex_bot.paper_trading.status_command import handle_status_command
 from nobitex_bot.risk.config_store import load_risk_config
@@ -64,8 +64,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument("--initial-capital", type=float, default=10_000_000, help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم")
     parser.add_argument(
-        "--approval", choices=["manual", "auto", "messaging"], default="manual",
-        help="manual=تایید دستی در ترمینال؛ messaging=بله/تلگرام؛ auto فقط برای تست",
+        "--approval", choices=["manual", "auto", "messaging", "notify"], default="manual",
+        help="manual=تایید دستی در ترمینال؛ messaging=بله/تلگرام با انتظار تایید صریح (برای فاز ۷/پول واقعی)؛ "
+        "notify=تایید خودکار و بی‌درنگ + پیام اطلاع‌رسانی بله/تلگرام (پیش‌فرض درست برای Paper Trading چون پول واقعی نیست)؛ "
+        "auto=کاملاً خودکار و بی‌صدا (فقط تست داخلی)",
     )
     parser.add_argument(
         "--once", action="store_true",
@@ -144,11 +146,12 @@ def main() -> None:
     scanner = MarketScanner(market_data=market_data, resolution=args.scan_resolution, max_symbols=args.max_symbols)
     order_executor = OrderExecutor(client=trading_client, storage=storage)
 
-    if args.approval == "manual":
-        approval_gate = ManualCLIApprovalGate()
-    elif args.approval == "auto":
-        approval_gate = AutoApproveGate()
-    else:  # messaging — بله/تلگرام (هر کدوم که تنظیم شده باشه، هر دو هم می‌تونن هم‌زمان فعال باشن)
+    # notifier جدا از approval_gate ساخته می‌شه — چون دستور «وضعیت» (پایین‌تر)
+    # باید در حالت notify هم کار کنه، نه فقط messaging. قبلاً این دو به‌هم
+    # قفل بودن (فقط MessagingApprovalGate یه notifier داشت) و با اضافه‌شدن
+    # حالت notify، دستور «وضعیت» بی‌صدا از کار می‌افتاد.
+    notifier = None
+    if args.approval in ("messaging", "notify"):
         notifiers = []
         telegram_token = _get_secret("telegram_token", "TELEGRAM_BOT_TOKEN")
         telegram_chat_id = _get_secret("telegram_chat_id", "TELEGRAM_CHAT_ID")
@@ -161,7 +164,19 @@ def main() -> None:
         if not notifiers:
             logger.error("هیچ توکن تلگرام/بله تنظیم نشده — از داشبورد یا GitHub Secrets تنظیمشون کن")
             sys.exit(1)
-        approval_gate = MessagingApprovalGate(notifier=CompositeNotifier(notifiers))
+        notifier = CompositeNotifier(notifiers)
+
+    if args.approval == "manual":
+        approval_gate = ManualCLIApprovalGate()
+    elif args.approval == "auto":
+        approval_gate = AutoApproveGate()
+    elif args.approval == "notify":
+        # پول واقعی درگیر نیست (Paper Trading) — بدون انتظار تایید، فوری تایید
+        # می‌شه و فقط یه پیام اطلاع‌رسانی می‌ره. اینه که چرخه‌ها دیگه به‌خاطر
+        # چند سیگنال پشت‌سرهم (هرکدوم تا ۵ دقیقه با messaging) کند نمی‌شن.
+        approval_gate = NotifyingAutoApproveGate(notifier=notifier)
+    else:  # messaging — تایید صریح با انتظار، برای فاز ۷ (پول واقعی) نگه داشته شده
+        approval_gate = MessagingApprovalGate(notifier=notifier)
 
     # اگه از داشبورد (فاز ۸) تنظیمات ریسک ذخیره شده باشه، همون جایگزین پیش‌فرض می‌شه
     initial_risk_config = load_risk_config(settings.data_dir / "risk_config.json")
@@ -206,9 +221,10 @@ def main() -> None:
 
     # دستور «وضعیت»/«داشبورد» — چون داشبورد وب روی GitHub Actions بالا نمی‌مونه،
     # این میان‌بر سبک اجازه می‌ده کاربر از داخل تلگرام/بله خلاصهٔ وضعیت رو بخواد.
-    if isinstance(approval_gate, MessagingApprovalGate):
+    # مستقل از approval_gate: در حالت messaging یا notify، هر دو یه notifier دارن.
+    if notifier is not None:
         handle_status_command(
-            notifier=approval_gate.notifier,
+            notifier=notifier,
             status_path=status_snapshot_path,
             decision_logger=decision_logger,
             offset_path=settings.data_dir / "status_command_offset.txt",

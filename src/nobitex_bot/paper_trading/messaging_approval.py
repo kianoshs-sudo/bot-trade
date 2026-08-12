@@ -59,3 +59,30 @@ class MessagingApprovalGate(ApprovalGate):
 
         logger.warning("پاسخی در مهلت %d ثانیه دریافت نشد — سیگنال به‌صورت پیش‌فرض رد شد", self.timeout_seconds)
         return False
+
+
+class NotifyingAutoApproveGate(ApprovalGate):
+    """تایید کاملاً خودکار و بی‌درنگ — مخصوص Paper Trading (پول واقعی درگیر
+    نیست، پس نیازی به تاییدیهٔ انسانی نیست). فقط یه پیام اطلاع‌رسانی
+    (بدون انتظار جواب) می‌فرسته.
+
+    ⚠️ چرا این کلاس لازم شد: با ``MessagingApprovalGate``، هر سیگنال تا ۵
+    دقیقه منتظر «تایید»/«رد» می‌مونه. وقتی چند سیگنال واقعی توی یک چرخه پیدا
+    می‌شن (که با فیکس Point-in-Time کاملاً محتمله)، این انتظارها پشت‌سرهم
+    جمع می‌شن و یک چرخهٔ ۷-۸ دقیقه‌ای می‌تونه ده‌ها دقیقه طول بکشه — بدون
+    هیچ فایدهٔ واقعی، چون این معاملات همه شبیه‌سازی‌ان (Testnet/کاغذی).
+    تاییدیهٔ انسانی واقعاً فقط برای فاز ۷ (پول واقعی) معنی داره."""
+
+    def __init__(self, notifier: Notifier) -> None:
+        self.notifier = notifier
+
+    def request_approval(self, signal: TradeSignal, position_size_quote: Decimal) -> bool:
+        text = (
+            f"✅ پوزیشن جدید (Paper Trading — خودکار) — {signal.symbol} ({signal.strategy_name})\n"
+            f"جهت: {signal.direction}\n"
+            f"دلیل: {signal.reason}\n"
+            f"ورود: {signal.entry_price_hint}   SL: {signal.stop_loss}   TP: {signal.take_profit}\n"
+            f"اندازهٔ پوزیشن: {position_size_quote}"
+        )
+        self.notifier.send_message(text)
+        return True
