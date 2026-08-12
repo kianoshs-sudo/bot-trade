@@ -101,7 +101,7 @@ class PaperTradingRunner:
     decision_logger: object | None = None  # nobitex_bot.monitoring.decision_log.DecisionLogger
     status_snapshot_path: object | None = None  # pathlib.Path
     risk_config_path: object | None = None  # pathlib.Path — برای بازخوانی زندهٔ تنظیمات از داشبورد
-    reference_collector: ReferenceMarketCollector | None = None  # فاز A — جمع‌آوری دادهٔ مرجع بایننس (اختیاری)
+    reference_collector: ReferenceMarketCollector | None = None  # فاز A — جمع‌آوری دادهٔ مرجع کوینبیس (اختیاری)
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -204,7 +204,7 @@ class PaperTradingRunner:
                 [o.symbol for o in opportunities], resolution=self.scanner.resolution
             )
         except Exception:
-            logger.exception("جمع‌آوری دادهٔ مرجع بایننس با خطا مواجه شد — چرخهٔ اصلی ادامه پیدا می‌کنه")
+            logger.exception("جمع‌آوری دادهٔ مرجع کوینبیس با خطا مواجه شد — چرخهٔ اصلی ادامه پیدا می‌کنه")
 
     def _write_status_snapshot_if_configured(self) -> None:
         if self.status_snapshot_path is None:
