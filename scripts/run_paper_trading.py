@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from nobitex_bot.analysis.scanner import MarketScanner
 from nobitex_bot.config import get_settings
 from nobitex_bot.data.market_data import MarketDataService
+from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
 from nobitex_bot.exchange.client import NobitexClient
 from nobitex_bot.exchange.endpoints import ALLOWED_RESOLUTIONS
@@ -69,6 +70,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--once", action="store_true",
         help="فقط یک چرخه اجرا کن و خارج شو (برای GitHub Actions یا هر cron دیگه) — بدون این فلگ، حلقهٔ بی‌نهایت با --interval-minutes اجرا می‌شه",
+    )
+    parser.add_argument(
+        "--no-reference-data", action="store_true",
+        help="جمع‌آوری دادهٔ مرجع بایننس (فاز A نقشهٔ چندبازاره) رو خاموش کن — فقط جمع‌آوریه، "
+        "روی هیچ تصمیم معامله‌ای اثر نداره، ولی اگه بخوای کاملاً خاموشش کنی این فلگ رو بده",
     )
     return parser.parse_args()
 
@@ -174,6 +180,12 @@ def main() -> None:
     status_snapshot_path = settings.data_dir / "status.json"
     decision_logger = DecisionLogger(settings.data_dir / "decisions.jsonl")
 
+    # فاز A نقشهٔ چندبازاره: جمع‌آوریِ بهترین‌تلاشِ دادهٔ مرجع بایننس برای همون
+    # نمادهایی که این چرخه اسکن شدن — فقط ذخیره می‌شه، هیچ تصمیم معامله‌ای
+    # فعلاً بهش وابسته نیست (طبق بخش ۱۹: قبل از اثبات آماری با چند هفته
+    # داده، هیچی وارد استراتژی نمی‌شه).
+    reference_collector = None if args.no_reference_data else ReferenceMarketCollector(storage=storage)
+
     runner = PaperTradingRunner(
         settings=settings,
         market_data=market_data,
@@ -185,6 +197,7 @@ def main() -> None:
         decision_logger=decision_logger,
         status_snapshot_path=status_snapshot_path,
         risk_config_path=settings.data_dir / "risk_config.json",
+        reference_collector=reference_collector,
     )
 
     # پوزیشن‌های باز/سرمایهٔ چرخه‌های قبلی از دیتابیس برگردونده می‌شن — بدون این،

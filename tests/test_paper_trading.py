@@ -490,3 +490,43 @@ def test_submit_order_uses_provided_client_order_id_for_exit_order(tmp_path):
     intent = storage.get_order_intent("my-fixed-id")
     assert intent is not None
     storage.close()
+
+
+def test_run_once_calls_reference_collector_with_scanned_symbols_and_resolution(tmp_path):
+    """فاز A نقشهٔ چندبازاره: هر چرخه باید سعی کنه دادهٔ مرجع رو برای همون
+    نمادهایی که اسکن شدن جمع کنه — با رزولوشن خودِ scanner، نه track."""
+    candles = build_trend_series()[:41]
+    runner, storage, _order_executor, _track = make_runner(tmp_path, AlwaysReject(), candles)
+    runner.scanner.resolution = "60"
+    reference_collector = MagicMock()
+    runner.reference_collector = reference_collector
+
+    runner.run_once()
+
+    reference_collector.collect.assert_called_once_with(["BTCIRT"], resolution="60")
+    storage.close()
+
+
+def test_run_once_survives_reference_collector_failure(tmp_path):
+    """یک خطای غیرمنتظره در جمع‌آوری دادهٔ مرجع نباید مانع اجرای عادی
+    چرخهٔ اصلی معاملهٔ نوبیتکس بشه."""
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    reference_collector = MagicMock()
+    reference_collector.collect.side_effect = RuntimeError("boom")
+    runner.reference_collector = reference_collector
+
+    runner.run_once()  # نباید exception بندازه
+
+    assert "BTCIRT" in track.open_positions
+    storage.close()
+
+
+def test_run_once_skips_reference_collection_when_not_configured(tmp_path):
+    candles = build_trend_series()[:41]
+    runner, storage, _order_executor, _track = make_runner(tmp_path, AlwaysReject(), candles)
+    assert runner.reference_collector is None
+
+    runner.run_once()  # نباید هیچ خطایی بده وقتی collector تنظیم نشده
+
+    storage.close()

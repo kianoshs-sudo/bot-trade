@@ -55,6 +55,22 @@ CREATE TABLE IF NOT EXISTS order_intents (
     updated_at INTEGER NOT NULL
 );
 
+-- کندل‌های بازارهای مرجع جهانی (فاز A نقشهٔ چندبازاره) — فقط جمع‌آوری، هنوز
+-- هیچ تصمیم معامله‌ای بهش وابسته نیست. exchange جدا از symbol نگه داشته می‌شه
+-- چون یک نماد ممکنه در چند صرافی مرجع (بایننس، OKX، ...) همزمان جمع بشه.
+CREATE TABLE IF NOT EXISTS reference_candles (
+    exchange TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    resolution TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    open TEXT NOT NULL,
+    high TEXT NOT NULL,
+    low TEXT NOT NULL,
+    close TEXT NOT NULL,
+    volume TEXT NOT NULL,
+    PRIMARY KEY (exchange, symbol, resolution, ts)
+);
+
 -- معاملات شبیه‌سازی‌شدهٔ Paper Trading (فاز ۶) — قابل‌مقایسه با خروجی بک‌تست
 CREATE TABLE IF NOT EXISTS paper_trades (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,6 +149,53 @@ class Storage:
     def get_candles(self, symbol: str, resolution: str, from_ts: int | None = None, to_ts: int | None = None) -> list[Candle]:
         query = "SELECT ts, open, high, low, close, volume FROM candles WHERE symbol=? AND resolution=?"
         params: list[object] = [symbol, resolution]
+        if from_ts is not None:
+            query += " AND ts >= ?"
+            params.append(from_ts)
+        if to_ts is not None:
+            query += " AND ts <= ?"
+            params.append(to_ts)
+        query += " ORDER BY ts ASC"
+        cursor = self._conn.execute(query, params)
+        return [
+            Candle(
+                timestamp=row[0],
+                open=Decimal(row[1]),
+                high=Decimal(row[2]),
+                low=Decimal(row[3]),
+                close=Decimal(row[4]),
+                volume=Decimal(row[5]),
+            )
+            for row in cursor.fetchall()
+        ]
+
+    # ------------------------------------------------------------------
+    # reference_candles — دادهٔ مرجع بازارهای جهانی (فاز A نقشهٔ چندبازاره)
+    # ------------------------------------------------------------------
+
+    def upsert_reference_candles(self, exchange: str, symbol: str, resolution: str, candles: list[Candle]) -> int:
+        rows = [
+            (exchange, symbol, resolution, c.timestamp, str(c.open), str(c.high), str(c.low), str(c.close), str(c.volume))
+            for c in candles
+        ]
+        self._conn.executemany(
+            """
+            INSERT INTO reference_candles (exchange, symbol, resolution, ts, open, high, low, close, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (exchange, symbol, resolution, ts) DO UPDATE SET
+                open=excluded.open, high=excluded.high, low=excluded.low,
+                close=excluded.close, volume=excluded.volume
+            """,
+            rows,
+        )
+        self._conn.commit()
+        return len(rows)
+
+    def get_reference_candles(
+        self, exchange: str, symbol: str, resolution: str, from_ts: int | None = None, to_ts: int | None = None
+    ) -> list[Candle]:
+        query = "SELECT ts, open, high, low, close, volume FROM reference_candles WHERE exchange=? AND symbol=? AND resolution=?"
+        params: list[object] = [exchange, symbol, resolution]
         if from_ts is not None:
             query += " AND ts >= ?"
             params.append(from_ts)

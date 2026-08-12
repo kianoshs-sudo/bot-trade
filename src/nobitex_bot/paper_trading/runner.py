@@ -42,6 +42,7 @@ from nobitex_bot.analysis.indicators import MIN_CANDLES_FOR_INDICATORS, candles_
 from nobitex_bot.analysis.scanner import MarketScanner
 from nobitex_bot.config import Settings
 from nobitex_bot.data.market_data import MarketDataService
+from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
 from nobitex_bot.execution.order_executor import OrderExecutor
 from nobitex_bot.paper_trading.approval import ApprovalGate
@@ -100,6 +101,7 @@ class PaperTradingRunner:
     decision_logger: object | None = None  # nobitex_bot.monitoring.decision_log.DecisionLogger
     status_snapshot_path: object | None = None  # pathlib.Path
     risk_config_path: object | None = None  # pathlib.Path — برای بازخوانی زندهٔ تنظیمات از داشبورد
+    reference_collector: ReferenceMarketCollector | None = None  # فاز A — جمع‌آوری دادهٔ مرجع بایننس (اختیاری)
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -169,6 +171,7 @@ class PaperTradingRunner:
             self._check_exits(track)
 
         opportunities = self.scanner.scan()
+        self._collect_reference_data_if_configured(opportunities)
         for track in self.tracks:
             if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
                 logger.info("[%s] تعداد پوزیشن‌های باز به سقف رسیده — اسکن جدید انجام نمی‌شه", track.label)
@@ -190,6 +193,18 @@ class PaperTradingRunner:
         new_config = load_risk_config(self.risk_config_path)
         for track in self.tracks:
             track.risk_manager.config = new_config
+
+    def _collect_reference_data_if_configured(self, opportunities: list) -> None:
+        """بهترین‌تلاش، غیرمسدودکننده: هیچ خطایی در جمع‌آوری دادهٔ مرجع
+        (فاز A) نباید چرخهٔ اصلی معاملهٔ نوبیتکس رو متوقف کنه."""
+        if self.reference_collector is None:
+            return
+        try:
+            self.reference_collector.collect(
+                [o.symbol for o in opportunities], resolution=self.scanner.resolution
+            )
+        except Exception:
+            logger.exception("جمع‌آوری دادهٔ مرجع بایننس با خطا مواجه شد — چرخهٔ اصلی ادامه پیدا می‌کنه")
 
     def _write_status_snapshot_if_configured(self) -> None:
         if self.status_snapshot_path is None:

@@ -48,6 +48,33 @@ def test_get_candles_filters_by_time_range(tmp_path):
     storage.close()
 
 
+def test_upsert_and_get_reference_candles(tmp_path):
+    storage = Storage(tmp_path / "test.sqlite")
+    candles = [
+        Candle(timestamp=1000, open=Decimal("100"), high=Decimal("101"), low=Decimal("99"), close=Decimal("100.5"), volume=Decimal("10")),
+    ]
+
+    saved = storage.upsert_reference_candles("binance", "BTCUSDT", "60", candles)
+    result = storage.get_reference_candles("binance", "BTCUSDT", "60")
+
+    assert saved == 1
+    assert len(result) == 1
+    assert result[0].close == Decimal("100.5")
+    storage.close()
+
+
+def test_reference_candles_are_isolated_by_exchange(tmp_path):
+    storage = Storage(tmp_path / "test.sqlite")
+    c = Candle(timestamp=1000, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
+
+    storage.upsert_reference_candles("binance", "BTCUSDT", "60", [c])
+    storage.upsert_reference_candles("okx", "BTCUSDT", "60", [c])
+
+    assert len(storage.get_reference_candles("binance", "BTCUSDT", "60")) == 1
+    assert len(storage.get_reference_candles("okx", "BTCUSDT", "60")) == 1
+    storage.close()
+
+
 def test_save_market_stats_snapshot(tmp_path):
     storage = Storage(tmp_path / "test.sqlite")
     stats = {
