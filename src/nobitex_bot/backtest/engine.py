@@ -40,6 +40,12 @@ class BacktestConfig:
     initial_capital: Decimal = Decimal("10_000_000")  # پیش‌فرض: ۱۰ میلیون ریال
     risk_per_trade_pct: Decimal = Decimal("0.02")  # ۲٪ سرمایه در معرض ریسک هر معامله (سطح متعادل)
     fee_rate: Decimal = Decimal("0.0025")  # ⚠️ تخمینی — نرخ دقیق کارمزد نوبیتکس رو verify کن
+    # ⚠️ هر دو تخمینی‌ان — هنوز دادهٔ واقعی اسپرد/اسلیپیج نوبیتکس جمع نشده.
+    # بدون این دو، بک‌تست فرض می‌کرد می‌شه دقیقاً روی قیمت کندل معامله کرد —
+    # که خوش‌بینانه‌تر از واقعیته (بازار واقعی همیشه یه فاصلهٔ خرید/فروش
+    # داره، و سفارش‌های فوری معمولاً کمی بدتر از قیمت لحظهٔ تصمیم اجرا می‌شن).
+    spread_pct: Decimal = Decimal("0.001")  # ۰.۱٪ فاصلهٔ خرید/فروش (نصفش هر طرف معامله اعمال می‌شه)
+    slippage_pct: Decimal = Decimal("0.0005")  # ۰.۰۵٪ برای سفارش‌های تهاجمی (ورود/SL/خروج با علامت استراتژی)
 
 
 @dataclass
@@ -108,9 +114,12 @@ class BacktestEngine:
                     if size_quote < min_order_value:
                         skipped_small_order += 1
                     else:
+                        entry_price = self._apply_execution_cost(
+                            Decimal(str(next_candle["open"])), is_buying=(signal.direction == "buy")
+                        )
                         position = {
                             "direction": signal.direction,
-                            "entry_price": Decimal(str(next_candle["open"])),
+                            "entry_price": entry_price,
                             "stop_loss": signal.stop_loss,
                             "take_profit": signal.take_profit,
                             "entry_time": int(next_candle["timestamp"]),
@@ -150,6 +159,16 @@ class BacktestEngine:
             skipped_small_order_signals=skipped_small_order,
         )
 
+    def _apply_execution_cost(self, price: Decimal, is_buying: bool) -> Decimal:
+        """اسپرد (نصفش، چون قیمت کندل معادل قیمت میانیِ بازار فرض می‌شه) +
+        اسلیپیج رو به ضرر معامله‌گر روی قیمت اعمال می‌کنه. فقط برای سفارش‌های
+        تهاجمی صدا زده می‌شه (نگاه کن به فراخوان‌ها) — سفارش‌های passive
+        (برخورد TP) این هزینه رو نمی‌بینن."""
+        cost_pct = self.config.spread_pct / 2 + self.config.slippage_pct
+        if is_buying:
+            return price * (1 + cost_pct)
+        return price * (1 - cost_pct)
+
     def _position_size(self, capital: Decimal, entry_price: Decimal, stop_loss: Decimal) -> Decimal:
         """همون فرمول ریسک-محور فاز ۵ (`risk.position_sizing`) — استفادهٔ مشترک
         بین بک‌تست و اجرای زنده تا منطق سایز پوزیشن جایی دو بار پیاده نشه."""
@@ -170,16 +189,25 @@ class BacktestEngine:
             hit_sl = high >= stop_loss
             hit_tp = low <= take_profit
 
+        # ورود/خروجِ SL/خروج با علامت استراتژی، همه سفارش‌های تهاجمی‌ان (فوری،
+        # نه از‌قبل نشسته توی بازار) پس اسپرد+اسلیپیج بهشون اعمال می‌شه. فقط
+        # TP از این قاعده مستثناست — چون سفارش OCO محدود (limit) از قبل دقیقاً
+        # روی همون قیمت توی بازار نشسته و لمسش یعنی همون قیمت واقعاً اجرا شده.
+        closing_is_buying = position["direction"] == "sell"
+
         if hit_sl and hit_tp:
-            return stop_loss, "SL و TP هر دو در همین کندل لمس شدن — فرض محافظه‌کارانه: SL زودتر اجرا شد"
+            exit_price = self._apply_execution_cost(stop_loss, is_buying=closing_is_buying)
+            return exit_price, "SL و TP هر دو در همین کندل لمس شدن — فرض محافظه‌کارانه: SL زودتر اجرا شد"
         if hit_sl:
-            return stop_loss, "برخورد Stop Loss (سفارش نیتیو)"
+            exit_price = self._apply_execution_cost(stop_loss, is_buying=closing_is_buying)
+            return exit_price, "برخورد Stop Loss (سفارش نیتیو)"
         if hit_tp:
             return take_profit, "برخورد Take Profit (سفارش نیتیو)"
 
         should_exit, reason = strategy.should_exit(window, position["direction"])
         if should_exit:
-            return Decimal(str(candle["open"])), reason
+            exit_price = self._apply_execution_cost(Decimal(str(candle["open"])), is_buying=closing_is_buying)
+            return exit_price, reason
 
         return None, ""
 
