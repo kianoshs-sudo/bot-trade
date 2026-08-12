@@ -216,6 +216,21 @@ class Storage:
             for row in cursor.fetchall()
         ]
 
+    # ------------------------------------------------------------------
+    # پوشش داده — برای پنل «پوشش داده» داشبورد (فاز A)، تا بدون سرزدن به
+    # لاگ خام GitHub Actions بشه دید جمع‌آوری واقعاً داره کار می‌کنه یا نه.
+    # ------------------------------------------------------------------
+
+    def get_candle_coverage(self) -> dict[str, int | None]:
+        cursor = self._conn.execute("SELECT COUNT(*), COUNT(DISTINCT symbol), MAX(ts) FROM candles")
+        total, symbol_count, last_ts = cursor.fetchone()
+        return {"total_candles": total, "symbol_count": symbol_count, "last_ts": last_ts}
+
+    def get_reference_candle_coverage(self) -> dict[str, int | None]:
+        cursor = self._conn.execute("SELECT COUNT(*), COUNT(DISTINCT symbol), MAX(ts) FROM reference_candles")
+        total, symbol_count, last_ts = cursor.fetchone()
+        return {"total_candles": total, "symbol_count": symbol_count, "last_ts": last_ts}
+
     def save_market_stats_snapshot(self, ts: int, stats: dict[str, MarketStat]) -> int:
         rows = [
             (

@@ -89,3 +89,26 @@ def test_trades_page_renders_empty_state(app_client):
     response = client.get("/trades")
 
     assert response.status_code == 200
+
+
+def test_index_shows_data_coverage_panel(app_client):
+    """پنل «پوشش داده» باید تعداد کندل‌های نوبیتکس/مرجع رو نشون بده — بدون
+    این، هیچ راهی نبود بفهمیم فاز A (جمع‌آوری کوینبیس) واقعاً کار می‌کنه یا
+    نه، مگر با سرزدن مستقیم به لاگ خام GitHub Actions."""
+    from decimal import Decimal
+
+    from nobitex_bot.data.storage import Storage
+    from nobitex_bot.exchange.models import Candle
+
+    client, settings = app_client
+    storage = Storage(settings.data_dir / "paper_trading.sqlite")
+    candle = Candle(timestamp=1000, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
+    storage.upsert_candles("BTCIRT", "60", [candle])
+    storage.upsert_reference_candles("coinbase", "BTC-USD", "60", [candle])
+    storage.close()
+
+    client.post("/login", data={"password": "pw"})
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "پوشش داده".encode() in response.data

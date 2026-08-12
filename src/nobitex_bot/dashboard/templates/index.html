@@ -54,6 +54,34 @@
 </div>
 {% endif %}
 
+<h2 class="section-title">پوشش داده (برای دنبال‌کردن دقیق سامانه)</h2>
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="label">کندل نوبیتکس ذخیره‌شده</div>
+    <div class="value num">{{ candle_coverage.total_candles | fnumber }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">نمادهای نوبیتکس با دیتا</div>
+    <div class="value num">{{ candle_coverage.symbol_count | fnumber }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">آخرین کندل نوبیتکس</div>
+    <div class="value num" style="font-size:15px;">{{ candle_coverage.last_ts | fdatetime }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">کندل مرجع کوینبیس ذخیره‌شده</div>
+    <div class="value num">{{ reference_coverage.total_candles | fnumber }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">نمادهای مرجع با دیتا</div>
+    <div class="value num">{{ reference_coverage.symbol_count | fnumber }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="label">آخرین کندل مرجع</div>
+    <div class="value num" style="font-size:15px;">{{ reference_coverage.last_ts | fdatetime }}</div>
+  </div>
+</div>
+
 <h2 class="section-title">آخرین تصمیم‌ها (علت‌یابی) <span class="count-badge">{{ decisions | length }}</span></h2>
 {% if not decisions %}
 <div class="empty-state">

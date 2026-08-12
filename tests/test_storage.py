@@ -75,6 +75,45 @@ def test_reference_candles_are_isolated_by_exchange(tmp_path):
     storage.close()
 
 
+def test_get_candle_coverage_counts_and_finds_latest_timestamp(tmp_path):
+    storage = Storage(tmp_path / "test.sqlite")
+    candles_btc = [
+        Candle(timestamp=t, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
+        for t in [1000, 2000, 3000]
+    ]
+    candles_eth = [
+        Candle(timestamp=t, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
+        for t in [1500]
+    ]
+    storage.upsert_candles("BTCIRT", "60", candles_btc)
+    storage.upsert_candles("ETHIRT", "60", candles_eth)
+
+    coverage = storage.get_candle_coverage()
+
+    assert coverage == {"total_candles": 4, "symbol_count": 2, "last_ts": 3000}
+    storage.close()
+
+
+def test_get_candle_coverage_empty_when_no_candles(tmp_path):
+    storage = Storage(tmp_path / "test.sqlite")
+
+    coverage = storage.get_candle_coverage()
+
+    assert coverage == {"total_candles": 0, "symbol_count": 0, "last_ts": None}
+    storage.close()
+
+
+def test_get_reference_candle_coverage_counts_and_finds_latest_timestamp(tmp_path):
+    storage = Storage(tmp_path / "test.sqlite")
+    c = Candle(timestamp=5000, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
+    storage.upsert_reference_candles("coinbase", "BTC-USD", "60", [c])
+
+    coverage = storage.get_reference_candle_coverage()
+
+    assert coverage == {"total_candles": 1, "symbol_count": 1, "last_ts": 5000}
+    storage.close()
+
+
 def test_save_market_stats_snapshot(tmp_path):
     storage = Storage(tmp_path / "test.sqlite")
     stats = {

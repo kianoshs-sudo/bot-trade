@@ -91,7 +91,18 @@ def create_app(settings: Settings) -> Flask:
         status = read_status_snapshot(status_path)
         decisions = DecisionLogger(decisions_path).read_recent(20)
         total_capital = sum((Decimal(t["capital"]) for t in status["tracks"]), Decimal(0)) if status else Decimal(0)
-        return render_template("index.html", status=status, decisions=decisions, total_capital=total_capital)
+        storage = Storage(trades_db_path)
+        candle_coverage = storage.get_candle_coverage()
+        reference_coverage = storage.get_reference_candle_coverage()
+        storage.close()
+        return render_template(
+            "index.html",
+            status=status,
+            decisions=decisions,
+            total_capital=total_capital,
+            candle_coverage=candle_coverage,
+            reference_coverage=reference_coverage,
+        )
 
     @app.route("/trades")
     @login_required
