@@ -12,9 +12,10 @@ from pathlib import Path
 from typing import Any
 
 
-def write_status_snapshot(path: Path, tracks: list[Any]) -> None:
+def write_status_snapshot(path: Path, tracks: list[Any], cycle_duration_seconds: float | None = None) -> None:
     data = {
         "updated_at": int(time.time()),
+        "cycle_duration_seconds": cycle_duration_seconds,
         "tracks": [
             {
                 "label": track.label,

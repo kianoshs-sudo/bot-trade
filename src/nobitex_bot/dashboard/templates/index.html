@@ -30,6 +30,10 @@
     <div class="label">آخرین به‌روزرسانی</div>
     <div class="value num" style="font-size:15px;">{{ status.updated_at | fdatetime }}</div>
   </div>
+  <div class="stat-card">
+    <div class="label">مدت چرخهٔ اخیر</div>
+    <div class="value num" style="font-size:15px;">{{ status.cycle_duration_seconds | fduration }}</div>
+  </div>
 </div>
 
 <h2 class="section-title">ترکیب‌های استراتژی/تایم‌فریم <span class="count-badge">{{ status.tracks | length }}</span></h2>

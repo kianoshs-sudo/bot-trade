@@ -65,6 +65,19 @@ def format_datetime(ts: int | str | None) -> str:
     return to_persian_digits(text)
 
 
+def format_duration(seconds: float | int | None) -> str:
+    """ثانیهٔ خام -> «X دقیقه Y ثانیه» با رقم فارسی — برای نمایش مدت چرخهٔ اخیر."""
+    if seconds is None:
+        return "—"
+    try:
+        total = int(round(float(seconds)))
+    except (TypeError, ValueError):
+        return "—"
+    minutes, secs = divmod(max(total, 0), 60)
+    text = f"{minutes} دقیقه {secs} ثانیه" if minutes else f"{secs} ثانیه"
+    return to_persian_digits(text)
+
+
 def format_number(value: str | Decimal | int | None) -> str:
     """رشتهٔ عددی خام -> با جداکنندهٔ هزارگان، برای خوانایی (بدون تغییر مقدار واقعی)."""
     if value is None or value == "":
@@ -126,6 +139,7 @@ def pnl_class(value: str | Decimal | None) -> str:
 def register_filters(app) -> None:
     app.jinja_env.filters["fdatetime"] = format_datetime
     app.jinja_env.filters["fnumber"] = format_number
+    app.jinja_env.filters["fduration"] = format_duration
     app.jinja_env.filters["fsymbol"] = format_symbol
     app.jinja_env.filters["direction_fa"] = direction_fa
     app.jinja_env.filters["direction_class"] = direction_class

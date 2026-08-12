@@ -522,6 +522,50 @@ def test_run_once_survives_reference_collector_failure(tmp_path):
     storage.close()
 
 
+def test_run_once_records_cycle_duration_in_status_snapshot(tmp_path):
+    """صفحهٔ «چرخهٔ اخیر» داشبورد بدون این نمی‌تونه بگه آخرین اجرا چقدر طول
+    کشیده — تنها راه فهمیدنش سرزدن به لاگ خام GitHub Actions بود."""
+    import json
+
+    from nobitex_bot.data.storage import Storage
+
+    settings = make_settings(tmp_path)
+    storage = Storage(tmp_path / "test.sqlite")
+    candles = build_trend_series()[:41]
+
+    market_data = MagicMock()
+    market_data.get_ohlc_history.return_value = candles
+    stat = MagicMock()
+    stat.latest = Decimal("100.68")
+    market_data.get_all_market_stats.return_value = {"BTCIRT": stat}
+
+    scanner = MagicMock()
+    scan_result = MagicMock()
+    scan_result.symbol = "BTCIRT"
+    scanner.scan.return_value = [scan_result]
+
+    track = StrategyTrack(strategy=TrendMomentumVolumeStrategy(), resolution="60", capital=Decimal("10000000"))
+    status_path = tmp_path / "status.json"
+
+    runner = PaperTradingRunner(
+        settings=settings,
+        market_data=market_data,
+        scanner=scanner,
+        tracks=[track],
+        order_executor=MagicMock(),
+        storage=storage,
+        approval_gate=AlwaysReject(),
+        status_snapshot_path=status_path,
+    )
+
+    runner.run_once()
+
+    data = json.loads(status_path.read_text(encoding="utf-8"))
+    assert data["cycle_duration_seconds"] is not None
+    assert data["cycle_duration_seconds"] >= 0
+    storage.close()
+
+
 def test_try_enter_ignores_still_forming_last_candle(tmp_path):
     """اگه udf/history کندلِ در حال شکل‌گیریِ لحظهٔ درخواست رو هم برگردونه
     (رفتار معمول endpointهای سبک TradingView UDF)، بدون حذفش، جفتِ

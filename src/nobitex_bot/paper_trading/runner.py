@@ -171,6 +171,7 @@ class PaperTradingRunner:
         logger.info("حافظه بازسازی شد: %d پوزیشن باز، %d معاملهٔ بسته‌شده", restored, len(closed))
 
     def run_once(self) -> None:
+        cycle_start = time.time()
         self._reload_risk_config_if_configured()
 
         for track in self.tracks:
@@ -189,7 +190,7 @@ class PaperTradingRunner:
                     if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
                         break
 
-        self._write_status_snapshot_if_configured()
+        self._write_status_snapshot_if_configured(time.time() - cycle_start)
 
     def _reload_risk_config_if_configured(self) -> None:
         if self.risk_config_path is None:
@@ -212,12 +213,12 @@ class PaperTradingRunner:
         except Exception:
             logger.exception("جمع‌آوری دادهٔ مرجع کوینبیس با خطا مواجه شد — چرخهٔ اصلی ادامه پیدا می‌کنه")
 
-    def _write_status_snapshot_if_configured(self) -> None:
+    def _write_status_snapshot_if_configured(self, cycle_duration_seconds: float | None = None) -> None:
         if self.status_snapshot_path is None:
             return
         from nobitex_bot.monitoring.status_snapshot import write_status_snapshot
 
-        write_status_snapshot(self.status_snapshot_path, self.tracks)
+        write_status_snapshot(self.status_snapshot_path, self.tracks, cycle_duration_seconds=cycle_duration_seconds)
 
     def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
         now = int(time.time())
