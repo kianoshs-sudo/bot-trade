@@ -1,7 +1,11 @@
 from decimal import Decimal
 
-from nobitex_bot.analysis.indicators import candles_to_dataframe, compute_indicators
+from nobitex_bot.analysis.indicators import candles_to_dataframe, compute_indicators, drop_unclosed_last_candle
 from nobitex_bot.exchange.models import Candle
+
+
+def _c(ts):
+    return Candle(timestamp=ts, open=Decimal("1"), high=Decimal("1"), low=Decimal("1"), close=Decimal("1"), volume=Decimal("1"))
 
 
 def make_trending_candles(n: int, start_price: float, direction: int, accel: float = 0.03) -> list[Candle]:
@@ -60,3 +64,28 @@ def test_compute_indicators_downtrend_produces_bearish_signals():
     assert last["EMA_9"] < last["EMA_21"]
     assert last["RSI_14"] < 50
     assert last["MACDh_12_26_9"] < 0
+
+
+def test_drop_unclosed_last_candle_removes_still_forming_bar():
+    """اگه بازهٔ کندل آخر هنوز تموم نشده (ts + resolution_seconds > now)، این
+    یعنی udf/history کندل در حال شکل‌گیریِ لحظهٔ درخواست رو هم برگردونده —
+    باید حذف بشه."""
+    now = 1_700_010_000
+    candles = [_c(1_700_000_000), _c(1_700_003_600), _c(1_700_007_200)]  # آخری هنوز باز است (تا 1_700_010_800)
+
+    result = drop_unclosed_last_candle(candles, resolution_seconds=3600, now=now)
+
+    assert [c.timestamp for c in result] == [1_700_000_000, 1_700_003_600]
+
+
+def test_drop_unclosed_last_candle_keeps_fully_closed_bars():
+    now = 1_700_020_000
+    candles = [_c(1_700_000_000), _c(1_700_003_600), _c(1_700_007_200)]  # همه از قبل بسته شدن
+
+    result = drop_unclosed_last_candle(candles, resolution_seconds=3600, now=now)
+
+    assert [c.timestamp for c in result] == [1_700_000_000, 1_700_003_600, 1_700_007_200]
+
+
+def test_drop_unclosed_last_candle_handles_empty_list():
+    assert drop_unclosed_last_candle([], resolution_seconds=3600, now=1_700_000_000) == []

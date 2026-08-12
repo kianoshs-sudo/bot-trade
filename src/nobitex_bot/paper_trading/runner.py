@@ -38,12 +38,18 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from nobitex_bot.analysis.indicators import MIN_CANDLES_FOR_INDICATORS, candles_to_dataframe, compute_indicators
+from nobitex_bot.analysis.indicators import (
+    MIN_CANDLES_FOR_INDICATORS,
+    candles_to_dataframe,
+    compute_indicators,
+    drop_unclosed_last_candle,
+)
 from nobitex_bot.analysis.scanner import MarketScanner
 from nobitex_bot.config import Settings
 from nobitex_bot.data.market_data import MarketDataService
 from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
+from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS
 from nobitex_bot.execution.order_executor import OrderExecutor
 from nobitex_bot.paper_trading.approval import ApprovalGate
 from nobitex_bot.risk.risk_manager import RiskManager
@@ -217,6 +223,7 @@ class PaperTradingRunner:
         now = int(time.time())
         span_seconds = 200 * 3600
         candles = self.market_data.get_ohlc_history(symbol, track.resolution, now - span_seconds, now)
+        candles = drop_unclosed_last_candle(candles, RESOLUTION_SECONDS[track.resolution], now)
         if len(candles) < MIN_CANDLES_FOR_INDICATORS:
             return False
         df = compute_indicators(candles_to_dataframe(candles))

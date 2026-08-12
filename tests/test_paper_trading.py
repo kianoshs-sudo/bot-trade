@@ -8,7 +8,7 @@ from nobitex_bot.paper_trading.approval import ApprovalGate
 from nobitex_bot.paper_trading.runner import OpenPosition, PaperTradingRunner, StrategyTrack
 from nobitex_bot.risk.risk_manager import RiskConfig, RiskManager
 from nobitex_bot.strategies.trend_momentum_volume import TrendMomentumVolumeStrategy
-from tests.test_strategies import build_trend_series
+from tests.test_strategies import _candle, build_trend_series
 
 
 class AlwaysApprove(ApprovalGate):
@@ -517,6 +517,29 @@ def test_run_once_survives_reference_collector_failure(tmp_path):
     runner.reference_collector = reference_collector
 
     runner.run_once()  # نباید exception بندازه
+
+    assert "BTCIRT" in track.open_positions
+    storage.close()
+
+
+def test_try_enter_ignores_still_forming_last_candle(tmp_path):
+    """اگه udf/history کندلِ در حال شکل‌گیریِ لحظهٔ درخواست رو هم برگردونه
+    (رفتار معمول endpointهای سبک TradingView UDF)، بدون حذفش، جفتِ
+    prev/curr که کراس رو چک می‌کنه دقیقاً یک کندل جابه‌جا می‌شه — کراس
+    واقعی (که روی کندل ۴۱، آخرین کندل بسته‌شده، رخ داده) دیگه دیده نمی‌شه
+    چون prev هم از پس از کراس می‌شه. این دقیقاً همون سناریوییه که باعث شد
+    در production واقعی، با وجود ده‌ها سیگنال در replay آفلاین، هیچ سیگنالی
+    زنده هیچ‌وقت به معامله تبدیل نشه."""
+    import time
+
+    closed_candles = build_trend_series()[:41]  # کراس صعودی دقیقاً روی کندل ۴۱ (آخرین کندل بسته)
+    last_close = closed_candles[-1].close
+    still_forming = _candle(int(time.time()), float(last_close), float(last_close), float(last_close), float(last_close), 100)
+    candles_with_partial = closed_candles + [still_forming]
+
+    runner, storage, _order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles_with_partial)
+
+    runner.run_once()
 
     assert "BTCIRT" in track.open_positions
     storage.close()

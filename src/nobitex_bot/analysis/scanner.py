@@ -22,6 +22,7 @@ from nobitex_bot.analysis.indicators import (
     MIN_CANDLES_FOR_INDICATORS,
     candles_to_dataframe,
     compute_indicators,
+    drop_unclosed_last_candle,
 )
 from nobitex_bot.data.market_data import MarketDataService
 from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, stats_symbol_to_udf_symbol
@@ -84,6 +85,7 @@ class MarketScanner:
         span_seconds = RESOLUTION_SECONDS[self.resolution] * self.lookback_candles
         now = int(time.time())
         candles = self.market_data.get_ohlc_history(symbol, self.resolution, now - span_seconds, now)
+        candles = drop_unclosed_last_candle(candles, RESOLUTION_SECONDS[self.resolution], now)
         if len(candles) < MIN_CANDLES_FOR_INDICATORS:
             logger.debug("داده ناکافی برای %s (%d کندل) — رد شد", symbol, len(candles))
             return None
