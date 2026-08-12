@@ -62,7 +62,13 @@ def parse_args() -> argparse.Namespace:
         "به‌خاطر rate limit سخت‌گیر (۲۰ درخواست کندل در دقیقه) می‌تونه یک چرخه رو ساعت‌ها طول بده",
     )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
-    parser.add_argument("--initial-capital", type=float, default=10_000_000, help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم")
+    parser.add_argument(
+        "--initial-capital", type=float, default=50_000_000,
+        help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم — چون پول واقعی نیست، عمداً بالاتر از یه حساب واقعی "
+        "کوچیک نگه داشته شده: با ۱۰ میلیون پیش‌فرض قبلی، هر سیگنالی که فاصلهٔ SL بیشتر از ~۶.۷٪ داشت "
+        "(خیلی معمول برای آلت‌کوین‌های پرنوسان) به‌خاطر SmallOrder رد می‌شد — نه چون سیگنال بد بود، فقط "
+        "چون سرمایهٔ کوچیک با قانون ریسک ۲٪ نمی‌تونست به حداقل ارزش معاملهٔ نوبیتکس (۳ میلیون ریال) برسه.",
+    )
     parser.add_argument(
         "--approval", choices=["manual", "auto", "messaging", "notify"], default="manual",
         help="manual=تایید دستی در ترمینال؛ messaging=بله/تلگرام با انتظار تایید صریح (برای فاز ۷/پول واقعی)؛ "
