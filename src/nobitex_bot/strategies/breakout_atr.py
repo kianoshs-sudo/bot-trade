@@ -24,7 +24,13 @@ edge (بازدهٔ قیمت بعد از سیگنال، مستقل از SL/TP) ر
 نسخهٔ اصلی روش تست شده بود — پس با دقت بیشتری (روی دادهٔ جدید که هنوز
 ندیده) باید verify بشه قبل از اعتماد کامل.
 
-SL/TP بر اساس ATR با نسبت ریسک‌به‌ریوارد ۱:۱.۵ (بدون تغییر نسبت به قبل).
+فاصلهٔ SL هم بعداً از ۲ به ۳ برابر ATR و TP از ۳ به ۴ برابر ATR بازتر شد:
+با بک‌تست کامل (با کارمزد/اسپرد/اسلیپیج واقعی)، نسبت برد/باخت واقعی خیلی
+کمتر از نسبت اسمی طراحی‌شده در اومد — چون هزینهٔ رفت‌وبرگشت معامله روی
+فاصلهٔ SL نسبتاً تنگ سهم نسبی بزرگی می‌گرفت (SL خروج «تهاجمی» با هزینهٔ
+اسپرد/اسلیپیج حساب می‌شه، برخلاف TP که passive و بدون این هزینه‌ست). با
+جاروب چند مقدار روی همون دیتای کش‌شده: Sharpe از ‑۸.۴۹ (نسخهٔ اصلی) به
+‑۱.۹۵ رسید — هنوز منفی، ولی بهبود بزرگ.
 """
 
 from __future__ import annotations
@@ -37,8 +43,8 @@ from nobitex_bot.strategies.base import Strategy, TradeSignal
 
 CHANNEL_PERIOD = 20
 VOLUME_MA_PERIOD = 20
-ATR_STOP_MULTIPLIER = Decimal("2")
-ATR_TAKE_PROFIT_MULTIPLIER = Decimal("3")
+ATR_STOP_MULTIPLIER = Decimal("3")
+ATR_TAKE_PROFIT_MULTIPLIER = Decimal("4")
 BREAKOUT_CONFIRM_ATR_MULTIPLIER = Decimal("0.25")  # حداقل فاصلهٔ close از مرز کانال، برای رد شکست‌های مرزی/کاذب
 VOLUME_CONFIRM_MULTIPLIER = 1.5  # حجم باید حداقل ۱.۵ برابر میانگین ۲۰ کندل باشه
 

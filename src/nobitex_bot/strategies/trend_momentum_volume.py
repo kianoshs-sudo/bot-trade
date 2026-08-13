@@ -25,6 +25,16 @@ edge (بازدهٔ قیمت بعد از سیگنال، مستقل از SL/TP) ر
 ⚠️ هشدار overfitting: این معکوس‌سازی از همون ۱۵ روز دیتایی استخراج شده که
 نسخهٔ اصلی روش تست شده بود — پس با دقت بیشتری (روی دادهٔ جدید که هنوز
 ندیده) باید verify بشه قبل از اعتماد کامل.
+
+فاصلهٔ SL هم بعداً از ۱.۵ به ۲ برابر ATR بازتر شد: با بک‌تست کامل (با
+کارمزد/اسپرد/اسلیپیج واقعی) نسبت برد/باخت واقعی خیلی کمتر از نسبت اسمی
+۱:۲ (SL/TP) در اومد — چون هزینهٔ رفت‌وبرگشت معامله روی فاصلهٔ SL نسبتاً
+تنگ، سهم نسبی بزرگی می‌گرفت (SL خروج «تهاجمی» با هزینهٔ اسپرد/اسلیپیج
+حساب می‌شه، برخلاف TP که passive و بدون این هزینه‌ست). بازترکردن SL این
+سهم نسبی رو کم می‌کنه؛ TP هم به ۴ برابر ATR بازتر شد چون تست edge نشون
+داد سود حتی تا افق ۴۸ کندل هم داشت رشد می‌کرد (بدون علامت اشباع). با
+جاروب چند مقدار روی همون دیتای کش‌شده: Sharpe از ‑۴.۶۷ (نسخهٔ اصلی) به
+‑۱.۴۵ رسید — هنوز منفی، ولی بهبود بزرگ.
 """
 
 from __future__ import annotations
@@ -36,8 +46,8 @@ import pandas as pd
 from nobitex_bot.strategies.base import Strategy, TradeSignal
 
 VOLUME_MA_PERIOD = 20
-ATR_STOP_MULTIPLIER = Decimal("1.5")
-ATR_TAKE_PROFIT_MULTIPLIER = Decimal("3")
+ATR_STOP_MULTIPLIER = Decimal("2")
+ATR_TAKE_PROFIT_MULTIPLIER = Decimal("4")
 
 
 class TrendMomentumVolumeStrategy(Strategy):
