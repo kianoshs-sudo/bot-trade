@@ -84,7 +84,7 @@ def test_runner_rejects_production_env(tmp_path):
 
 
 def test_run_once_opens_position_when_signal_and_approval_pass(tmp_path):
-    candles = build_trend_series()[:41]  # دقیقاً تا کندل کراس صعودی
+    candles = build_trend_series()[:66]  # دقیقاً تا کندل کراس صعودی
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
 
     runner.run_once()
@@ -103,7 +103,7 @@ def test_run_once_opens_position_with_raw_exchange_stats_symbol_format(tmp_path)
     برخلاف mock معمول این فایل که مستقیم با کلید ``BTCIRT`` ساخته می‌شه و
     این باگ رو پنهان می‌کنه. بدون تبدیل فرمت در ``_udf_keyed_market_stats``،
     ``symbol in stats`` همیشه False می‌شد و هیچ پوزیشنی هیچ‌وقت باز نمی‌شد."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
     stat = MagicMock()
     stat.latest = Decimal("100.68")
@@ -117,7 +117,7 @@ def test_run_once_opens_position_with_raw_exchange_stats_symbol_format(tmp_path)
 
 
 def test_run_once_does_not_open_position_when_user_rejects(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysReject(), candles)
 
     runner.run_once()
@@ -128,7 +128,7 @@ def test_run_once_does_not_open_position_when_user_rejects(tmp_path):
 
 
 def test_check_exits_closes_position_on_stop_loss_hit(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
 
     trade_id = storage.open_paper_trade(
@@ -149,7 +149,7 @@ def test_check_exits_closes_position_on_stop_loss_hit(tmp_path):
 
 
 def test_check_exits_keeps_position_when_price_between_sl_and_tp(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="105")
 
     trade_id = storage.open_paper_trade(
@@ -173,7 +173,7 @@ def test_multiple_tracks_run_independently_same_symbol(tmp_path):
 
     settings = make_settings(tmp_path)
     storage = Storage(tmp_path / "test.sqlite")
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
 
     market_data = MagicMock()
     market_data.get_ohlc_history.return_value = candles
@@ -211,7 +211,7 @@ def test_multiple_tracks_run_independently_same_symbol(tmp_path):
 def test_restore_state_rehydrates_open_position_so_exits_are_checked(tmp_path):
     """بازسازی حافظه — سناریوی واقعی GitHub Actions: چرخهٔ قبلی پوزیشن باز کرده،
     process تموم شده، و چرخهٔ جدید باید همون پوزیشن رو برای SL/TP چک کنه."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
 
     # همون چیزی که چرخهٔ قبلی در دیتابیس نوشته (شامل SL/TP)
@@ -238,7 +238,7 @@ def test_restore_state_rehydrates_open_position_so_exits_are_checked(tmp_path):
 
 
 def test_restore_state_restores_capital_from_closed_trades(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles)
     initial_capital = track.capital
 
@@ -258,7 +258,7 @@ def test_restore_state_restores_capital_from_closed_trades(tmp_path):
 
 
 def test_restore_state_ignores_trades_from_other_strategy_track(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, resolution="60")
 
     # پوزیشن باز متعلق به تایم‌فریم دیگه‌ای که این اجرا فعال نیست
@@ -276,7 +276,7 @@ def test_restore_state_ignores_trades_from_other_strategy_track(tmp_path):
 
 def test_restore_state_skips_legacy_position_without_sl_tp(tmp_path):
     """معامله‌های بازِ دیتابیس‌های قدیمی (بدون ستون SL/TP) نباید با قیمت اشتباه بسته بشن."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
 
     storage.open_paper_trade(
@@ -291,7 +291,7 @@ def test_restore_state_skips_legacy_position_without_sl_tp(tmp_path):
 
 def test_open_position_persists_sl_tp_for_next_run(tmp_path):
     """چرخهٔ اول باید SL/TP رو ذخیره کنه وگرنه چرخهٔ بعدی نمی‌تونه بازسازی کنه."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, _ = make_runner(tmp_path, AlwaysApprove(), candles)
 
     runner.run_once()
@@ -308,7 +308,7 @@ def test_two_consecutive_once_runs_share_state_end_to_end(tmp_path):
     دیتابیس مشترک — اجرای دوم باید پوزیشن اجرای اول رو ببینه و ببنده."""
     from nobitex_bot.data.storage import Storage
 
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     db_path = tmp_path / "shared.sqlite"
 
     def build_runner(latest_price):
@@ -363,7 +363,7 @@ def test_two_consecutive_once_runs_share_state_end_to_end(tmp_path):
 def test_check_exits_closes_via_exchange_confirmation_even_when_price_is_between_sl_tp(tmp_path):
     """سناریوی دقیق نگرانی کاربر: قیمت بین دو چرخهٔ ۱۵ دقیقه‌ای به SL خورده و
     برگشته — روش قیمتی صرف این رو هرگز نمی‌بینه، ولی صرافی واقعاً اجرا کرده."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="105")
     order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Done"}}
 
@@ -389,7 +389,7 @@ def test_check_exits_closes_via_exchange_confirmation_even_when_price_is_between
 
 
 def test_check_exits_labels_exchange_confirmed_stop_loss_correctly(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
     order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Done"}}
 
@@ -414,7 +414,7 @@ def test_check_exits_labels_exchange_confirmed_stop_loss_correctly(tmp_path):
 def test_check_exits_falls_back_to_price_check_when_exchange_query_fails(tmp_path):
     """اگه استعلام وضعیت از صرافی خطا بده، نباید کل چرخه بشکنه — باید به روش
     قیمتی قبلی (که خودش تست‌شده و قابل‌اعتماده) برگرده."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
     order_executor.client.get_order_status.side_effect = RuntimeError("network error")
 
@@ -437,7 +437,7 @@ def test_check_exits_falls_back_to_price_check_when_exchange_query_fails(tmp_pat
 
 
 def test_check_exits_keeps_position_when_exchange_reports_still_active(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="105")
     order_executor.client.get_order_status.return_value = {"order": {"id": 1, "status": "Active"}}
 
@@ -458,7 +458,7 @@ def test_check_exits_keeps_position_when_exchange_reports_still_active(tmp_path)
 
 
 def test_open_position_generates_and_persists_exit_client_order_id(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
 
     runner.run_once()
@@ -477,7 +477,7 @@ def test_open_position_generates_and_persists_exit_client_order_id(tmp_path):
 
 
 def test_restore_state_recovers_exit_client_order_id(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles, latest_price="90")
 
     storage.open_paper_trade(
@@ -514,7 +514,7 @@ def test_submit_order_uses_provided_client_order_id_for_exit_order(tmp_path):
 def test_run_once_calls_reference_collector_with_scanned_symbols_and_resolution(tmp_path):
     """فاز A نقشهٔ چندبازاره: هر چرخه باید سعی کنه دادهٔ مرجع رو برای همون
     نمادهایی که اسکن شدن جمع کنه — با رزولوشن خودِ scanner، نه track."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _order_executor, _track = make_runner(tmp_path, AlwaysReject(), candles)
     runner.scanner.resolution = "60"
     reference_collector = MagicMock()
@@ -529,7 +529,7 @@ def test_run_once_calls_reference_collector_with_scanned_symbols_and_resolution(
 def test_run_once_survives_reference_collector_failure(tmp_path):
     """یک خطای غیرمنتظره در جمع‌آوری دادهٔ مرجع نباید مانع اجرای عادی
     چرخهٔ اصلی معاملهٔ نوبیتکس بشه."""
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
     reference_collector = MagicMock()
     reference_collector.collect.side_effect = RuntimeError("boom")
@@ -550,7 +550,7 @@ def test_run_once_records_cycle_duration_in_status_snapshot(tmp_path):
 
     settings = make_settings(tmp_path)
     storage = Storage(tmp_path / "test.sqlite")
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
 
     market_data = MagicMock()
     market_data.get_ohlc_history.return_value = candles
@@ -602,13 +602,13 @@ def test_try_enter_ignores_still_forming_last_candle(tmp_path):
     """اگه udf/history کندلِ در حال شکل‌گیریِ لحظهٔ درخواست رو هم برگردونه
     (رفتار معمول endpointهای سبک TradingView UDF)، بدون حذفش، جفتِ
     prev/curr که کراس رو چک می‌کنه دقیقاً یک کندل جابه‌جا می‌شه — کراس
-    واقعی (که روی کندل ۴۱، آخرین کندل بسته‌شده، رخ داده) دیگه دیده نمی‌شه
+    واقعی (که روی کندل ۶۵، آخرین کندل بسته‌شده، رخ داده) دیگه دیده نمی‌شه
     چون prev هم از پس از کراس می‌شه. این دقیقاً همون سناریوییه که باعث شد
     در production واقعی، با وجود ده‌ها سیگنال در replay آفلاین، هیچ سیگنالی
     زنده هیچ‌وقت به معامله تبدیل نشه."""
     import time
 
-    closed_candles = build_trend_series()[:41]  # کراس صعودی دقیقاً روی کندل ۴۱ (آخرین کندل بسته)
+    closed_candles = build_trend_series()[:66]  # کراس صعودی دقیقاً روی کندل ۶۵ (آخرین کندل بسته)
     last_close = closed_candles[-1].close
     still_forming = _candle(int(time.time()), float(last_close), float(last_close), float(last_close), float(last_close), 100)
     candles_with_partial = closed_candles + [still_forming]
@@ -622,7 +622,7 @@ def test_try_enter_ignores_still_forming_last_candle(tmp_path):
 
 
 def test_run_once_skips_reference_collection_when_not_configured(tmp_path):
-    candles = build_trend_series()[:41]
+    candles = build_trend_series()[:66]
     runner, storage, _order_executor, _track = make_runner(tmp_path, AlwaysReject(), candles)
     assert runner.reference_collector is None
 

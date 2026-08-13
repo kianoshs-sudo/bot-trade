@@ -62,12 +62,13 @@ def candles_to_dataframe(candles: list[Candle]) -> pd.DataFrame:
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """اندیکاتورهای مورد نیاز استراتژی‌های ترکیبی رو به df اضافه می‌کنه.
 
-    ستون‌های اضافه‌شده: EMA_9, EMA_21, RSI_14, MACD_12_26_9/MACDh/MACDs,
+    ستون‌های اضافه‌شده: EMA_9, EMA_21, EMA_50, RSI_14, MACD_12_26_9/MACDh/MACDs,
     BBL/BBM/BBU_20_2.0, ATRr_14, OBV
     """
     df = df.copy()
     df.ta.ema(length=9, append=True)
     df.ta.ema(length=21, append=True)
+    df.ta.ema(length=50, append=True)
     df.ta.rsi(length=14, append=True)
     df.ta.macd(fast=12, slow=26, signal=9, append=True)
     df.ta.bbands(length=20, std=2, append=True)

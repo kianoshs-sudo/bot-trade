@@ -2,8 +2,15 @@
 
 قوانین ورود:
 - Long: قیمت بسته‌شدن بالاتر از سقف کانال ۲۰ کندل اخیر (بدون احتساب کندل
-  فعلی) + حجم بالاتر از میانگین — یعنی خروج معتبر از رنج، نه نویز
-- Short: قیمت بسته‌شدن پایین‌تر از کف کانال ۲۰ کندل اخیر + حجم بالا
+  فعلی) به‌اندازهٔ حداقل ۰.۲۵ ATR (نه فقط لمس مرزی) + حجم حداقل ۱.۵ برابر
+  میانگین — یعنی خروج معتبر و قاطع از رنج، نه نویز
+- Short: قیمت بسته‌شدن پایین‌تر از کف کانال ۲۰ کندل اخیر با همون شرایط
+
+بافر ۰.۲۵ ATR و آستانهٔ حجم ۱.۵ برابر بعداً اضافه شدن: بک‌تست روی دادهٔ
+واقعی نوبیتکس نشون داد ۶۶٪ معاملات این استراتژی با SL بسته می‌شن —
+کلاسیک‌ترین مشکل استراتژی‌های breakout: شکست کاذب (قیمت به‌سختی از کانال
+رد می‌شه و بلافاصله برمی‌گرده). شرط لمسِ صرفِ مرز کانال + حجم «فقط
+بالاتر از میانگین» خیلی ضعیف بود و شکست‌های ضعیف/کاذب رو هم قبول می‌کرد.
 
 خروج: این استراتژی **کاملاً به سفارش OCO نیتیو نوبیتکس (SL+TP) متکی**
 است، نه به پایش دستی — دقیقاً طبق توصیهٔ سند پروژه برای استفاده از
@@ -27,6 +34,8 @@ CHANNEL_PERIOD = 20
 VOLUME_MA_PERIOD = 20
 ATR_STOP_MULTIPLIER = Decimal("2")
 ATR_TAKE_PROFIT_MULTIPLIER = Decimal("3")
+BREAKOUT_CONFIRM_ATR_MULTIPLIER = Decimal("0.25")  # حداقل فاصلهٔ close از مرز کانال، برای رد شکست‌های مرزی/کاذب
+VOLUME_CONFIRM_MULTIPLIER = 1.5  # حجم باید حداقل ۱.۵ برابر میانگین ۲۰ کندل باشه (قبلاً فقط >۱x بود)
 
 
 class BreakoutATRStrategy(Strategy):
@@ -45,12 +54,13 @@ class BreakoutATRStrategy(Strategy):
         channel_high = prior["high"].tail(CHANNEL_PERIOD).max()
         channel_low = prior["low"].tail(CHANNEL_PERIOD).min()
         volume_ma = df["volume"].rolling(VOLUME_MA_PERIOD).mean().iloc[-1]
-        volume_confirmed = curr["volume"] > volume_ma
+        volume_confirmed = curr["volume"] > volume_ma * VOLUME_CONFIRM_MULTIPLIER
+        breakout_buffer = curr["ATRr_14"] * float(BREAKOUT_CONFIRM_ATR_MULTIPLIER)
 
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
 
-        if curr["close"] > channel_high and volume_confirmed:
+        if curr["close"] > channel_high + breakout_buffer and volume_confirmed:
             return TradeSignal(
                 symbol=symbol,
                 direction="buy",
@@ -58,14 +68,15 @@ class BreakoutATRStrategy(Strategy):
                 stop_loss=close - atr * ATR_STOP_MULTIPLIER,
                 take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
                 reason=(
-                    f"شکست سقف کانال {CHANNEL_PERIOD} کندل (channel_high={channel_high:.4g}) "
-                    f"با تاییدیهٔ حجم ({curr['volume']:.2f})"
+                    f"شکست قاطع سقف کانال {CHANNEL_PERIOD} کندل (channel_high={channel_high:.4g}، "
+                    f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
+                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین"
                 ),
                 strategy_name=self.name,
                 native_order_hint="oco",
             )
 
-        if curr["close"] < channel_low and volume_confirmed:
+        if curr["close"] < channel_low - breakout_buffer and volume_confirmed:
             return TradeSignal(
                 symbol=symbol,
                 direction="sell",
@@ -73,8 +84,9 @@ class BreakoutATRStrategy(Strategy):
                 stop_loss=close + atr * ATR_STOP_MULTIPLIER,
                 take_profit=close - atr * ATR_TAKE_PROFIT_MULTIPLIER,
                 reason=(
-                    f"شکست کف کانال {CHANNEL_PERIOD} کندل (channel_low={channel_low:.4g}) "
-                    f"با تاییدیهٔ حجم ({curr['volume']:.2f})"
+                    f"شکست قاطع کف کانال {CHANNEL_PERIOD} کندل (channel_low={channel_low:.4g}، "
+                    f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
+                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین"
                 ),
                 strategy_name=self.name,
                 native_order_hint="oco",

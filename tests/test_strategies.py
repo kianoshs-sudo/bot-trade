@@ -20,9 +20,10 @@ def _candle(ts, o, h, l, c, v):
     )
 
 
-def build_trend_series(n_flat=40, n_ramp_up=15, n_ramp_down=20, ramp_up_step=0.5, ramp_down_step=0.6):
+def build_trend_series(n_flat=65, n_ramp_up=15, n_ramp_down=25, ramp_up_step=0.5, ramp_down_step=0.6):
     """نوسان تخت -> رمپ صعودی (کراس صعودی EMA9/21 با تاییدیهٔ حجم) -> رمپ نزولی
-    (کراس نزولی، برای تست should_exit)."""
+    (کراس نزولی، برای تست should_exit). n_flat=65 (نه ۴۰) تا موقع کراس واقعیِ
+    شروع رمپ (idx=65) حداقل ۵۰ کندل برای مقدار معتبر EMA_50 وجود داشته باشه."""
     candles = []
     price = 100.0
     ts = 1_700_000_000
@@ -39,6 +40,27 @@ def build_trend_series(n_flat=40, n_ramp_up=15, n_ramp_down=20, ramp_up_step=0.5
     for _ in range(n_ramp_down):
         c = price - ramp_down_step
         candles.append(_candle(ts, price, max(price, c) + 0.2, min(price, c) - 0.2, c, 300))
+        price = c
+        ts += 3600
+    return candles
+
+
+def build_downtrend_bounce_series(n_decline=70, decline_step=0.5, n_bounce=10, bounce_step=1.5):
+    """روند نزولی بلندمدت (EMA50 هم زیر قیمت‌های قبلی و هم رو به پایین) + یک
+    جهش کوتاه‌مدت که EMA9 رو از EMA21 رد می‌کنه (کراس صعودی + RSI/حجم قبول‌شدنی)
+    ولی close هنوز زیر EMA50 مونده — یعنی هنوز واقعاً برنگشته به روند صعودی،
+    فقط یه جهشِ داخل روند نزولیه. برای تست فیلتر EMA50 (باید این کراس رد بشه)."""
+    candles = []
+    price = 150.0
+    ts = 1_700_000_000
+    for _ in range(n_decline):
+        c = price - decline_step
+        candles.append(_candle(ts, price, max(price, c) + 0.2, min(price, c) - 0.2, c, 200))
+        price = c
+        ts += 3600
+    for _ in range(n_bounce):
+        c = price + bounce_step
+        candles.append(_candle(ts, price, max(price, c) + 0.2, min(price, c) - 0.2, c, 600))
         price = c
         ts += 3600
     return candles
@@ -61,7 +83,7 @@ def build_mean_reversion_series(n_stable=30, n_drop=8, drop_step=1.5):
     return candles
 
 
-def build_breakout_series(n_range=35, breakout_jump=6.0):
+def build_breakout_series(n_range=35, breakout_jump=6.0, breakout_volume=800):
     candles = []
     price = 100.0
     ts = 1_700_000_000
@@ -71,7 +93,7 @@ def build_breakout_series(n_range=35, breakout_jump=6.0):
         price = p
         ts += 3600
     c = price + breakout_jump
-    candles.append(_candle(ts, price, c + 0.3, price - 0.2, c, 800))
+    candles.append(_candle(ts, price, c + 0.3, price - 0.2, c, breakout_volume))
     return candles
 
 
@@ -84,8 +106,8 @@ def test_trend_strategy_generates_buy_signal_on_bullish_cross_with_volume():
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = TrendMomentumVolumeStrategy()
 
-    # اسلایس دقیقاً تا کندل کراس صعودی (index 40)
-    signal = strategy.generate_entry_signal(df.iloc[:41], "BTCIRT")
+    # اسلایس دقیقاً تا کندل کراس صعودی واقعی (index 65 — شروع رمپ، close بالای EMA50)
+    signal = strategy.generate_entry_signal(df.iloc[:66], "BTCIRT")
 
     assert signal is not None
     assert signal.direction == "buy"
@@ -104,12 +126,25 @@ def test_trend_strategy_no_signal_without_crossover():
     assert signal is None
 
 
+def test_trend_strategy_filters_cross_against_ema50_trend():
+    """کراس صعودی EMA9/21 با RSI/حجم قابل‌قبول ولی close هنوز زیر EMA50 —
+    یعنی فقط یه جهش کوتاه‌مدت داخل یه روند نزولی بزرگ‌تره، نه شروع واقعی
+    روند صعودی. باید رد بشه (بدون فیلتر EMA50 قبلاً سیگنال تولید می‌شد)."""
+    candles = build_downtrend_bounce_series()
+    df = compute_indicators(candles_to_dataframe(candles))
+    strategy = TrendMomentumVolumeStrategy()
+
+    signal = strategy.generate_entry_signal(df.iloc[:77], "BTCIRT")
+
+    assert signal is None
+
+
 def test_trend_strategy_should_exit_on_bearish_cross():
     candles = build_trend_series()
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = TrendMomentumVolumeStrategy()
 
-    should_exit, reason = strategy.should_exit(df.iloc[:64], position_direction="buy")
+    should_exit, reason = strategy.should_exit(df.iloc[:89], position_direction="buy")
 
     assert should_exit is True
     assert "EMA" in reason
@@ -120,7 +155,7 @@ def test_trend_strategy_no_exit_mid_trend():
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = TrendMomentumVolumeStrategy()
 
-    should_exit, _ = strategy.should_exit(df.iloc[:50], position_direction="buy")
+    should_exit, _ = strategy.should_exit(df.iloc[:76], position_direction="buy")
 
     assert should_exit is False
 
@@ -178,6 +213,32 @@ def test_breakout_strategy_generates_buy_signal_on_channel_breakout():
     assert signal is not None
     assert signal.direction == "buy"
     assert signal.native_order_hint == "oco"
+
+
+def test_breakout_strategy_filters_marginal_breakout_within_buffer():
+    """close فقط کمی بالاتر از channel_high (نه به‌اندازهٔ ۰.۲۵ ATR) — قبلاً
+    (بدون بافر تاییدیه) سیگنال تولید می‌شد؛ الان باید رد بشه چون شکست
+    قاطع نیست، فقط لمسِ مرزیه (شایع‌ترین حالت شکست کاذب)."""
+    candles = build_breakout_series(breakout_jump=3.3)
+    df = compute_indicators(candles_to_dataframe(candles))
+    strategy = BreakoutATRStrategy()
+
+    signal = strategy.generate_entry_signal(df, "DOGEIRT")
+
+    assert signal is None
+
+
+def test_breakout_strategy_filters_weak_volume_breakout():
+    """شکست قاطع (فراتر از بافر) ولی حجم فقط کمی بالاتر از میانگین (نه ۱.۵
+    برابر) — قبلاً سیگنال تولید می‌شد؛ الان باید رد بشه چون تاییدیهٔ حجمی
+    قوی نیست."""
+    candles = build_breakout_series(breakout_jump=6.0, breakout_volume=150)
+    df = compute_indicators(candles_to_dataframe(candles))
+    strategy = BreakoutATRStrategy()
+
+    signal = strategy.generate_entry_signal(df, "DOGEIRT")
+
+    assert signal is None
 
 
 def test_breakout_strategy_no_signal_inside_range():
