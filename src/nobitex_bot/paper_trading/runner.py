@@ -49,7 +49,7 @@ from nobitex_bot.config import Settings
 from nobitex_bot.data.market_data import MarketDataService
 from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
-from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS
+from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, stats_symbol_to_udf_symbol
 from nobitex_bot.execution.order_executor import OrderExecutor
 from nobitex_bot.paper_trading.approval import ApprovalGate
 from nobitex_bot.risk.risk_manager import RiskManager
@@ -224,6 +224,24 @@ class PaperTradingRunner:
             self.status_snapshot_path, self.tracks, cycle_duration_seconds=cycle_duration_seconds, watchlist=watchlist
         )
 
+    def _udf_keyed_market_stats(self) -> dict:
+        """``market/stats`` نمادها رو با فرمت خام صرافی برمی‌گردونه (مثل
+        ``btc-rls``)، نه فرمت udf که بقیهٔ کد (سیگنال/پوزیشن‌های باز) باهاش
+        کار می‌کنه (مثل ``BTCIRT``) — همون تبدیلی که ``MarketScanner.scan``
+        از قبل انجام می‌داد اما اینجا (چک قیمت لحظه‌ای برای ورود/خروج) فراموش
+        شده بود. بدون این تبدیل، ``symbol in stats`` تقریباً همیشه False
+        می‌شد و هیچ سیگنالی هیچ‌وقت به مرحلهٔ بررسی مدیریت ریسک نمی‌رسید —
+        باعث می‌شد ربات هیچ‌وقت، در هیچ چرخه‌ای، هیچ پوزیشنی باز نکنه."""
+        raw_stats = self.market_data.get_all_market_stats()
+        udf_stats = {}
+        for raw_symbol, stat in raw_stats.items():
+            try:
+                udf_symbol = stats_symbol_to_udf_symbol(raw_symbol)
+            except ValueError:
+                udf_symbol = raw_symbol  # از قبل به فرمت udf بوده (مثلاً تست‌ها یا فراخوانی مستقیم)
+            udf_stats[udf_symbol] = stat
+        return udf_stats
+
     def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
         now = int(time.time())
         span_seconds = 200 * 3600
@@ -233,7 +251,7 @@ class PaperTradingRunner:
             return False
         df = compute_indicators(candles_to_dataframe(candles))
 
-        stats = self.market_data.get_all_market_stats()
+        stats = self._udf_keyed_market_stats()
         market_price = stats[symbol].latest if symbol in stats and stats[symbol].latest else None
         if market_price is None:
             return False
@@ -312,7 +330,7 @@ class PaperTradingRunner:
             )
 
     def _check_exits(self, track: StrategyTrack) -> None:
-        stats = self.market_data.get_all_market_stats()
+        stats = self._udf_keyed_market_stats()
         for symbol, position in list(track.open_positions.items()):
             current_price = stats.get(symbol).latest if symbol in stats else None
 

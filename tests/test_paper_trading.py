@@ -97,6 +97,25 @@ def test_run_once_opens_position_when_signal_and_approval_pass(tmp_path):
     storage.close()
 
 
+def test_run_once_opens_position_with_raw_exchange_stats_symbol_format(tmp_path):
+    """``market/stats`` واقعی نوبیتکس نمادها رو با فرمت خام (مثل ``btc-rls``)
+    برمی‌گردونه، نه فرمت udf (``BTCIRT``) که بقیهٔ کد باهاش کار می‌کنه —
+    برخلاف mock معمول این فایل که مستقیم با کلید ``BTCIRT`` ساخته می‌شه و
+    این باگ رو پنهان می‌کنه. بدون تبدیل فرمت در ``_udf_keyed_market_stats``،
+    ``symbol in stats`` همیشه False می‌شد و هیچ پوزیشنی هیچ‌وقت باز نمی‌شد."""
+    candles = build_trend_series()[:41]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    stat = MagicMock()
+    stat.latest = Decimal("100.68")
+    runner.market_data.get_all_market_stats.return_value = {"btc-rls": stat}
+
+    runner.run_once()
+
+    assert "BTCIRT" in track.open_positions
+    assert order_executor.submit_order.call_count == 2
+    storage.close()
+
+
 def test_run_once_does_not_open_position_when_user_rejects(tmp_path):
     candles = build_trend_series()[:41]
     runner, storage, order_executor, track = make_runner(tmp_path, AlwaysReject(), candles)
