@@ -138,8 +138,10 @@ def test_mean_reversion_generates_buy_signal_when_oversold():
 
     assert signal is not None
     assert signal.direction == "buy"
-    assert signal.take_profit > signal.entry_price_hint  # هدف بازگشت به میانگین بالاتره
+    assert signal.take_profit > signal.entry_price_hint  # هدف باند مقابل بالاتره
     assert signal.stop_loss < signal.entry_price_hint
+    bbm = Decimal(str(df.iloc[-1]["BBM_20_2.0"]))
+    assert signal.take_profit > bbm  # هدف باید فراتر از باند میانی باشه (نه خودِ میانی)
 
 
 def test_mean_reversion_no_signal_in_stable_range():
@@ -152,14 +154,14 @@ def test_mean_reversion_no_signal_in_stable_range():
     assert signal is None
 
 
-def test_mean_reversion_exit_at_middle_band():
+def test_mean_reversion_should_exit_always_false():
     candles = build_mean_reversion_series()
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = MeanReversionStrategy()
 
-    should_exit, _ = strategy.should_exit(df, position_direction="sell")  # close << BBM پس sell باید خارج بشه
+    should_exit, _ = strategy.should_exit(df, position_direction="sell")
 
-    assert should_exit is True
+    assert should_exit is False
 
 
 # ---------------------------------------------------------------------------

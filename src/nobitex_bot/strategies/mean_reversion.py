@@ -5,12 +5,17 @@
   RSI زیر ۳۰ (oversold) — فرض بر بازگشت قیمت به میانگین
 - Short: قیمت به باند بالا رسیده (`close >= BBU`) و RSI بالای ۷۰ (overbought)
 
-خروج: رسیدن قیمت به باند میانی (BBM) — یعنی هدف بازگشت به میانگین محقق
-شده؛ مستقل از SL/TP.
+خروج: صرفاً سفارش SL/TP نیتیو (OCO) — دقیقاً مثل breakout_atr، نه پایش
+دستی باند میانی. (نسخهٔ قبلی هم‌زمان از TP ثابت روی BBM لحظهٔ ورود *و*
+should_exit روی BBM لحظه‌به‌لحظه استفاده می‌کرد؛ چون BBM هر کندل جابه‌جا
+می‌شه، این دو معیار به مرور از هم فاصله می‌گرفتن و should_exit عملاً قبل
+از رسیدن قیمت به TP واقعی، پوزیشن رو زودهنگام می‌بست — طبق بک‌تست، حتی
+معاملات «TP-hit» به‌خاطر همین اثر net negative بودن.)
 
 SL بر اساس ATR (فراتر از نوسان معمول بازار) تا اگه بازار در روند قوی
-باشه (نه رنج) و بولینگر باند پشت سر هم لمس بشه، ضرر محدود بمونه. TP اولیه
-باند میانی — محافظه‌کارانه‌تر از هدف باند مقابل، هم‌سو با سطح ریسک متعادل.
+باشه (نه رنج) و بولینگر باند پشت سر هم لمس بشه، ضرر محدود بمونه. TP روی
+باند مقابل (نه میانی) — هدف بازگشت کامل به سمت دیگهٔ رنج، نه فقط میانگین؛
+با کارمزد و اسپرد واقعی، فاصلهٔ TP تا BBM برای سودآور بودن معامله لازمه.
 """
 
 from __future__ import annotations
@@ -40,7 +45,8 @@ class MeanReversionStrategy(Strategy):
 
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
-        bbm = Decimal(str(curr["BBM_20_2.0"]))
+        bbl = Decimal(str(curr["BBL_20_2.0"]))
+        bbu = Decimal(str(curr["BBU_20_2.0"]))
 
         if curr["close"] <= curr["BBL_20_2.0"] and curr["RSI_14"] < RSI_OVERSOLD:
             return TradeSignal(
@@ -48,7 +54,7 @@ class MeanReversionStrategy(Strategy):
                 direction="buy",
                 entry_price_hint=close,
                 stop_loss=close - atr * ATR_STOP_MULTIPLIER,
-                take_profit=bbm,
+                take_profit=bbu,
                 reason=(
                     f"قیمت به باند پایین بولینگر رسید (close={curr['close']:.4g} <= "
                     f"BBL={curr['BBL_20_2.0']:.4g}) و RSI={curr['RSI_14']:.1f} در ناحیهٔ oversold"
@@ -62,7 +68,7 @@ class MeanReversionStrategy(Strategy):
                 direction="sell",
                 entry_price_hint=close,
                 stop_loss=close + atr * ATR_STOP_MULTIPLIER,
-                take_profit=bbm,
+                take_profit=bbl,
                 reason=(
                     f"قیمت به باند بالای بولینگر رسید (close={curr['close']:.4g} >= "
                     f"BBU={curr['BBU_20_2.0']:.4g}) و RSI={curr['RSI_14']:.1f} در ناحیهٔ overbought"
@@ -73,12 +79,4 @@ class MeanReversionStrategy(Strategy):
         return None
 
     def should_exit(self, df: pd.DataFrame, position_direction: str) -> tuple[bool, str]:
-        curr = df.iloc[-1]
-        if curr[["close", "BBM_20_2.0"]].isna().any():
-            return False, ""
-
-        if position_direction == "buy" and curr["close"] >= curr["BBM_20_2.0"]:
-            return True, "قیمت به باند میانی بولینگر (هدف بازگشت به میانگین) رسید"
-        if position_direction == "sell" and curr["close"] <= curr["BBM_20_2.0"]:
-            return True, "قیمت به باند میانی بولینگر (هدف بازگشت به میانگین) رسید"
-        return False, ""
+        return False, "این استراتژی صرفاً به سفارش OCO نیتیو (SL/TP) برای خروج متکیه"
