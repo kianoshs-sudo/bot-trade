@@ -1,21 +1,30 @@
-"""استراتژی ۱ — Trend-following + Momentum + Volume.
+"""استراتژی ۱ — Momentum Fade (قبلاً Trend-following، بر اساس شواهد معکوس شد).
 
-قوانین ورود:
-- Long: کراس صعودی EMA9 روی EMA21 (شروع روند) + RSI بین ۵۰-۷۵ (مومنتوم
-  مثبت ولی هنوز overbought نشده) + حجم بالاتر از میانگین ۲۰ کندل اخیر
-  (تاییدیهٔ حجمی حرکت) + close بالای EMA50 (فیلتر روند بزرگ‌تر)
-- Short: دقیقاً برعکس (کراس نزولی + RSI بین ۲۵-۵۰ + حجم بالا + close زیر EMA50)
+⚠️ این استراتژی از حالت trend-following اصلی‌ش کاملاً معکوس شده. تست مستقیم
+edge (بازدهٔ قیمت بعد از سیگنال، مستقل از SL/TP) روی دادهٔ واقعی نوبیتکس
+(۴۵۷ نماد، ~۱۵ روز) نشون داد نسخهٔ اصلی (خرید روی کراس صعودی EMA9/21 با
+فیلتر EMA50+RSI+حجم) edge **منفی و سیستماتیک** داشت — نه فقط noisy:
 
-فیلتر EMA50 بعداً اضافه شد: بک‌تست روی دادهٔ واقعی نوبیتکس نشون داد ۶۰٪
-معاملات این استراتژی با SL بسته می‌شن — یعنی کراس EMA9/21 به‌تنهایی در
-بازار پرنوسان آلت‌کوین خیلی زیاد whipsaw (کراس کاذب در رنج) می‌ده. الزام
-هم‌جهت بودن با EMA50 (روند میان‌مدت‌تر) فیلتر می‌کنه که کراس واقعاً شروع
-روند باشه، نه نوسان کوتاه‌مدت داخل یک رنج ثابت.
+    افق ۵ کندل: ‑۰.۲۷٪   افق ۱۰: ‑۰.۳۷٪   افق ۲۴: ‑۰.۷۸٪   افق ۴۸: ‑۱.۰۶٪
 
-خروج: کراس معکوس EMA9/EMA21 (سیگنال پایان روند) — مستقل از SL/TP.
+یعنی بعد از این سیگنال، قیمت به‌طور پایدار در جهت **مخالف** پیش‌بینی حرکت
+می‌کرد، و هرچی افق طولانی‌تر بشه بدتر می‌شه. چون این تست مستقیماً همون
+شرایط فیلترشدهٔ فعلی (EMA50+RSI+حجم) رو استفاده می‌کرد، رابطهٔ ریاضی ساده‌ست:
+معکوس‌کردن جهت معامله دقیقاً همون‌قدر edge مثبت می‌ده (بدون نیاز به اجرای
+مجدد تست، چون فقط علامت یک ضرب‌شدن ساده معکوس می‌شه).
 
-SL/TP بر اساس ATR (نه درصد ثابت) تا با نوسان واقعی هر بازار سازگار باشه؛
-نسبت ریسک‌به‌ریوارد ۱:۲ که با سطح ریسک متعادل پروژه هم‌خونی داره.
+قوانین ورود (بعد از معکوس‌سازی):
+- Sell (fade): کراس صعودی EMA9/21 + RSI بین ۵۰-۷۵ + حجم بالا + close بالای
+  EMA50 — یعنی دقیقاً همون شرایطی که قبلاً «خرید» می‌کرد، الان می‌فروشه.
+- Buy (fade): دقیقاً برعکس (کراس نزولی + RSI ۲۵-۵۰ + حجم بالا + زیر EMA50).
+
+خروج: فقط SL/TP نیتیو (OCO) — should_exit همیشه False. تست edge بدون هیچ
+خروج دستی انجام شده بود، پس این نزدیک‌ترین تطابق به چیزیه که واقعاً
+اندازه‌گیری شده (نه یه قانون خروج تازه و اعتبارسنجی‌نشده).
+
+⚠️ هشدار overfitting: این معکوس‌سازی از همون ۱۵ روز دیتایی استخراج شده که
+نسخهٔ اصلی روش تست شده بود — پس با دقت بیشتری (روی دادهٔ جدید که هنوز
+ندیده) باید verify بشه قبل از اعتماد کامل.
 """
 
 from __future__ import annotations
@@ -55,22 +64,8 @@ class TrendMomentumVolumeStrategy(Strategy):
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
 
+        # fade: کراس صعودی -> sell (edge تست شده منفی بود برای buy، پس معکوسش می‌کنیم)
         if bullish_cross and volume_confirmed and trend_up and 50 <= curr["RSI_14"] <= 75:
-            return TradeSignal(
-                symbol=symbol,
-                direction="buy",
-                entry_price_hint=close,
-                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
-                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
-                reason=(
-                    f"کراس صعودی EMA9/EMA21 بالای EMA50 (روند میان‌مدت صعودی) + "
-                    f"RSI={curr['RSI_14']:.1f} در محدودهٔ مومنتوم مثبت "
-                    f"+ حجم ({curr['volume']:.2f}) بالاتر از میانگین {VOLUME_MA_PERIOD} کندل"
-                ),
-                strategy_name=self.name,
-            )
-
-        if bearish_cross and volume_confirmed and trend_down and 25 <= curr["RSI_14"] <= 50:
             return TradeSignal(
                 symbol=symbol,
                 direction="sell",
@@ -78,9 +73,25 @@ class TrendMomentumVolumeStrategy(Strategy):
                 stop_loss=close + atr * ATR_STOP_MULTIPLIER,
                 take_profit=close - atr * ATR_TAKE_PROFIT_MULTIPLIER,
                 reason=(
-                    f"کراس نزولی EMA9/EMA21 زیر EMA50 (روند میان‌مدت نزولی) + "
-                    f"RSI={curr['RSI_14']:.1f} در محدودهٔ مومنتوم منفی "
-                    f"+ حجم ({curr['volume']:.2f}) بالاتر از میانگین {VOLUME_MA_PERIOD} کندل"
+                    f"Fade کراس صعودی EMA9/EMA21 بالای EMA50 + RSI={curr['RSI_14']:.1f} "
+                    f"+ حجم ({curr['volume']:.2f}) — edge تجربی منفی برای دنبال‌کردن این کراس، "
+                    f"پس در جهت مخالفش معامله می‌کنیم"
+                ),
+                strategy_name=self.name,
+            )
+
+        # fade: کراس نزولی -> buy
+        if bearish_cross and volume_confirmed and trend_down and 25 <= curr["RSI_14"] <= 50:
+            return TradeSignal(
+                symbol=symbol,
+                direction="buy",
+                entry_price_hint=close,
+                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
+                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                reason=(
+                    f"Fade کراس نزولی EMA9/EMA21 زیر EMA50 + RSI={curr['RSI_14']:.1f} "
+                    f"+ حجم ({curr['volume']:.2f}) — edge تجربی منفی برای دنبال‌کردن این کراس، "
+                    f"پس در جهت مخالفش معامله می‌کنیم"
                 ),
                 strategy_name=self.name,
             )
@@ -88,17 +99,4 @@ class TrendMomentumVolumeStrategy(Strategy):
         return None
 
     def should_exit(self, df: pd.DataFrame, position_direction: str) -> tuple[bool, str]:
-        if len(df) < 2:
-            return False, ""
-        prev, curr = df.iloc[-2], df.iloc[-1]
-        if curr[["EMA_9", "EMA_21"]].isna().any():
-            return False, ""
-
-        bullish_cross = prev["EMA_9"] <= prev["EMA_21"] and curr["EMA_9"] > curr["EMA_21"]
-        bearish_cross = prev["EMA_9"] >= prev["EMA_21"] and curr["EMA_9"] < curr["EMA_21"]
-
-        if position_direction == "buy" and bearish_cross:
-            return True, "معکوس شدن روند: EMA9 زیر EMA21 کراس کرد"
-        if position_direction == "sell" and bullish_cross:
-            return True, "معکوس شدن روند: EMA9 بالای EMA21 کراس کرد"
-        return False, ""
+        return False, "این استراتژی صرفاً به سفارش OCO نیتیو (SL/TP) برای خروج متکیه"

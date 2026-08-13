@@ -49,7 +49,9 @@ def test_engine_applies_execution_cost_to_entry_price():
     first_trade = result.trades[0]
     matching_candle = df[df["timestamp"] == first_trade.entry_time].iloc[0]
     raw_open = Decimal(str(matching_candle["open"]))
-    expected_entry = raw_open * Decimal("1.002")  # buy: spread/2 (0.001) + slippage (0.001)
+    # این استراتژی الان fade هست (کراس صعودی -> sell)، پس هزینهٔ اجرا به ضرر فروشنده اعمال می‌شه
+    assert first_trade.direction == "sell"
+    expected_entry = raw_open * Decimal("0.998")  # sell: spread/2 (0.001) + slippage (0.001) به ضرر فروشنده
     assert first_trade.entry_price == expected_entry
 
 

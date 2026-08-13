@@ -341,8 +341,12 @@ def test_two_consecutive_once_runs_share_state_end_to_end(tmp_path):
     first_trade_id = entry.trade_id
     storage1.close()
 
-    # اجرای دوم — process جدید، حافظهٔ in-memory خالی، قیمت زیر حد ضرر افتاده
-    stop_loss_hit_price = str(entry.stop_loss - Decimal("1"))
+    # اجرای دوم — process جدید، حافظهٔ in-memory خالی، قیمت به سمت حد ضرر رفته
+    # (جهت SL بسته به direction فرق می‌کنه: برای sell، SL بالای قیمت ورودیه)
+    if entry.direction == "buy":
+        stop_loss_hit_price = str(entry.stop_loss - Decimal("1"))
+    else:
+        stop_loss_hit_price = str(entry.stop_loss + Decimal("1"))
     runner2, storage2, track2 = build_runner(stop_loss_hit_price)
     assert track2.open_positions == {}, "آبجکت جدید باید حافظهٔ خالی داشته باشه"
 

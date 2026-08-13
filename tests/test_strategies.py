@@ -101,7 +101,9 @@ def build_breakout_series(n_range=35, breakout_jump=6.0, breakout_volume=800):
 # Trend + Momentum + Volume
 # ---------------------------------------------------------------------------
 
-def test_trend_strategy_generates_buy_signal_on_bullish_cross_with_volume():
+def test_trend_strategy_fades_bullish_cross_with_sell_signal():
+    """استراتژی معکوس شده (fade) — کراس صعودی EMA9/21 با تاییدیهٔ RSI/حجم/EMA50
+    حالا سیگنال فروش تولید می‌کنه، نه خرید (طبق شواهد تست edge)."""
     candles = build_trend_series()
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = TrendMomentumVolumeStrategy()
@@ -110,8 +112,8 @@ def test_trend_strategy_generates_buy_signal_on_bullish_cross_with_volume():
     signal = strategy.generate_entry_signal(df.iloc[:66], "BTCIRT")
 
     assert signal is not None
-    assert signal.direction == "buy"
-    assert signal.stop_loss < signal.entry_price_hint < signal.take_profit
+    assert signal.direction == "sell"
+    assert signal.take_profit < signal.entry_price_hint < signal.stop_loss
     assert signal.strategy_name == "trend_momentum_volume"
 
 
@@ -139,25 +141,17 @@ def test_trend_strategy_filters_cross_against_ema50_trend():
     assert signal is None
 
 
-def test_trend_strategy_should_exit_on_bearish_cross():
+def test_trend_strategy_never_manual_exits():
+    """مثل breakout_atr، این استراتژی هم صرفاً به OCO نیتیو متکیه — تست edge
+    بدون هیچ خروج دستی انجام شده بود، پس قانون خروج تازه‌ای اضافه نکردیم."""
     candles = build_trend_series()
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = TrendMomentumVolumeStrategy()
 
     should_exit, reason = strategy.should_exit(df.iloc[:89], position_direction="buy")
 
-    assert should_exit is True
-    assert "EMA" in reason
-
-
-def test_trend_strategy_no_exit_mid_trend():
-    candles = build_trend_series()
-    df = compute_indicators(candles_to_dataframe(candles))
-    strategy = TrendMomentumVolumeStrategy()
-
-    should_exit, _ = strategy.should_exit(df.iloc[:76], position_direction="buy")
-
     assert should_exit is False
+    assert "OCO" in reason
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +197,9 @@ def test_mean_reversion_should_exit_always_false():
 # Breakout + ATR
 # ---------------------------------------------------------------------------
 
-def test_breakout_strategy_generates_buy_signal_on_channel_breakout():
+def test_breakout_strategy_fades_channel_breakout_with_sell_signal():
+    """استراتژی معکوس شده (fade) — شکست سقف کانال حالا سیگنال فروش تولید
+    می‌کنه، نه خرید (طبق شواهد تست edge)."""
     candles = build_breakout_series()
     df = compute_indicators(candles_to_dataframe(candles))
     strategy = BreakoutATRStrategy()
@@ -211,7 +207,7 @@ def test_breakout_strategy_generates_buy_signal_on_channel_breakout():
     signal = strategy.generate_entry_signal(df, "DOGEIRT")
 
     assert signal is not None
-    assert signal.direction == "buy"
+    assert signal.direction == "sell"
     assert signal.native_order_hint == "oco"
 
 

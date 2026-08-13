@@ -1,25 +1,30 @@
-"""استراتژی ۳ — Breakout + ATR-based sizing.
+"""استراتژی ۳ — Breakout Fade (قبلاً Breakout-following، بر اساس شواهد معکوس شد).
 
-قوانین ورود:
-- Long: قیمت بسته‌شدن بالاتر از سقف کانال ۲۰ کندل اخیر (بدون احتساب کندل
-  فعلی) به‌اندازهٔ حداقل ۰.۲۵ ATR (نه فقط لمس مرزی) + حجم حداقل ۱.۵ برابر
-  میانگین — یعنی خروج معتبر و قاطع از رنج، نه نویز
-- Short: قیمت بسته‌شدن پایین‌تر از کف کانال ۲۰ کندل اخیر با همون شرایط
+⚠️ این استراتژی از حالت breakout-following اصلی‌ش معکوس شده. تست مستقیم
+edge (بازدهٔ قیمت بعد از سیگنال، مستقل از SL/TP) روی دادهٔ واقعی نوبیتکس
+(۴۵۷ نماد، ~۱۵ روز)، با همین شرایط فیلترشدهٔ فعلی (بافر ۰.۲۵ ATR + حجم
+۱.۵ برابر)، نشون داد نسخهٔ اصلی (خرید روی شکست سقف کانال) edge **منفی و
+پایدار** داشت، نه فقط noisy:
 
-بافر ۰.۲۵ ATR و آستانهٔ حجم ۱.۵ برابر بعداً اضافه شدن: بک‌تست روی دادهٔ
-واقعی نوبیتکس نشون داد ۶۶٪ معاملات این استراتژی با SL بسته می‌شن —
-کلاسیک‌ترین مشکل استراتژی‌های breakout: شکست کاذب (قیمت به‌سختی از کانال
-رد می‌شه و بلافاصله برمی‌گرده). شرط لمسِ صرفِ مرز کانال + حجم «فقط
-بالاتر از میانگین» خیلی ضعیف بود و شکست‌های ضعیف/کاذب رو هم قبول می‌کرد.
+    افق ۵ کندل: ‑۰.۴۰٪   افق ۱۰: ‑۰.۴۶٪   افق ۲۴: ‑۰.۶۴٪   افق ۴۸: ‑۰.۵۱٪
 
-خروج: این استراتژی **کاملاً به سفارش OCO نیتیو نوبیتکس (SL+TP) متکی**
-است، نه به پایش دستی — دقیقاً طبق توصیهٔ سند پروژه برای استفاده از
-قابلیت‌های خود صرافی به‌جای منطق مشابه در کد. به همین خاطر
-``should_exit`` همیشه False برمی‌گردونه؛ خروج واقعی رو سفارش OCO ثبت‌شده
-در فاز ۷ مدیریت می‌کنه.
+یعنی شکست‌های کانال به‌طور سیستماتیک شکست می‌خورن و برمی‌گردن (شکست کاذب
+حتی بعد از بافر تاییدیه). چون این تست مستقیماً همین شرایط فعلی رو استفاده
+می‌کرد، معکوس‌کردن جهت معامله دقیقاً همون‌قدر edge مثبت می‌ده.
 
-SL/TP بر اساس ATR با نسبت ریسک‌به‌ریوارد ۱:۱.۵ (محافظه‌کارانه‌تر از
-استراتژی روند، چون breakoutهای کاذب (false breakout) شایع‌ترن).
+قوانین ورود (بعد از معکوس‌سازی):
+- Sell (fade): شکست قاطع سقف کانال ۲۰ کندل (با بافر + حجم قوی) — دقیقاً
+  همون شرایطی که قبلاً «خرید» می‌کرد، الان می‌فروشه.
+- Buy (fade): دقیقاً برعکس (شکست قاطع کف کانال).
+
+خروج: همچنان فقط SL/TP نیتیو (OCO) — should_exit همیشه False، بدون تغییر
+نسبت به قبل (تست edge هم بدون هیچ خروج دستی انجام شده بود).
+
+⚠️ هشدار overfitting: این معکوس‌سازی از همون ۱۵ روز دیتایی استخراج شده که
+نسخهٔ اصلی روش تست شده بود — پس با دقت بیشتری (روی دادهٔ جدید که هنوز
+ندیده) باید verify بشه قبل از اعتماد کامل.
+
+SL/TP بر اساس ATR با نسبت ریسک‌به‌ریوارد ۱:۱.۵ (بدون تغییر نسبت به قبل).
 """
 
 from __future__ import annotations
@@ -35,7 +40,7 @@ VOLUME_MA_PERIOD = 20
 ATR_STOP_MULTIPLIER = Decimal("2")
 ATR_TAKE_PROFIT_MULTIPLIER = Decimal("3")
 BREAKOUT_CONFIRM_ATR_MULTIPLIER = Decimal("0.25")  # حداقل فاصلهٔ close از مرز کانال، برای رد شکست‌های مرزی/کاذب
-VOLUME_CONFIRM_MULTIPLIER = 1.5  # حجم باید حداقل ۱.۵ برابر میانگین ۲۰ کندل باشه (قبلاً فقط >۱x بود)
+VOLUME_CONFIRM_MULTIPLIER = 1.5  # حجم باید حداقل ۱.۵ برابر میانگین ۲۰ کندل باشه
 
 
 class BreakoutATRStrategy(Strategy):
@@ -60,23 +65,8 @@ class BreakoutATRStrategy(Strategy):
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
 
+        # fade: شکست سقف -> sell (edge تست شده منفی بود برای buy، پس معکوسش می‌کنیم)
         if curr["close"] > channel_high + breakout_buffer and volume_confirmed:
-            return TradeSignal(
-                symbol=symbol,
-                direction="buy",
-                entry_price_hint=close,
-                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
-                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
-                reason=(
-                    f"شکست قاطع سقف کانال {CHANNEL_PERIOD} کندل (channel_high={channel_high:.4g}، "
-                    f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
-                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین"
-                ),
-                strategy_name=self.name,
-                native_order_hint="oco",
-            )
-
-        if curr["close"] < channel_low - breakout_buffer and volume_confirmed:
             return TradeSignal(
                 symbol=symbol,
                 direction="sell",
@@ -84,9 +74,26 @@ class BreakoutATRStrategy(Strategy):
                 stop_loss=close + atr * ATR_STOP_MULTIPLIER,
                 take_profit=close - atr * ATR_TAKE_PROFIT_MULTIPLIER,
                 reason=(
-                    f"شکست قاطع کف کانال {CHANNEL_PERIOD} کندل (channel_low={channel_low:.4g}، "
+                    f"Fade شکست قاطع سقف کانال {CHANNEL_PERIOD} کندل (channel_high={channel_high:.4g}، "
                     f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
-                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین"
+                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
+                ),
+                strategy_name=self.name,
+                native_order_hint="oco",
+            )
+
+        # fade: شکست کف -> buy
+        if curr["close"] < channel_low - breakout_buffer and volume_confirmed:
+            return TradeSignal(
+                symbol=symbol,
+                direction="buy",
+                entry_price_hint=close,
+                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
+                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                reason=(
+                    f"Fade شکست قاطع کف کانال {CHANNEL_PERIOD} کندل (channel_low={channel_low:.4g}، "
+                    f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
+                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
                 ),
                 strategy_name=self.name,
                 native_order_hint="oco",
