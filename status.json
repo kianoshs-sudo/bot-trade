@@ -1,0 +1,175 @@
+{
+  "updated_at": 1788648204,
+  "cycle_duration_seconds": 428.50286173820496,
+  "tracks": [
+    {
+      "label": "trend_momentum_volume@60",
+      "strategy_name": "trend_momentum_volume",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    },
+    {
+      "label": "mean_reversion_rsi_bb@60",
+      "strategy_name": "mean_reversion_rsi_bb",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    },
+    {
+      "label": "breakout_atr@60",
+      "strategy_name": "breakout_atr",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    }
+  ],
+  "watchlist": [
+    {
+      "symbol": "CATIIRT",
+      "last_price": "112910",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7530613136020465
+    },
+    {
+      "symbol": "SUSHIIRT",
+      "last_price": "574540",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7033436585585333
+    },
+    {
+      "symbol": "ARBIRT",
+      "last_price": "404610",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6973761402891041
+    },
+    {
+      "symbol": "BICOIRT",
+      "last_price": "50630",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6482041618605687
+    },
+    {
+      "symbol": "DOGEIRT",
+      "last_price": "203500",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6198297928361594
+    },
+    {
+      "symbol": "PUMPIRT",
+      "last_price": "8900",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5924643908658733
+    },
+    {
+      "symbol": "UNIIRT",
+      "last_price": "15859840",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5923684862486842
+    },
+    {
+      "symbol": "BTCIRT",
+      "last_price": "178900000000",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5867548560966506
+    },
+    {
+      "symbol": "DOGSIRT",
+      "last_price": "100.097",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5863101313299139
+    },
+    {
+      "symbol": "1K_CATIRT",
+      "last_price": "5677.52",
+      "signal_direction": "bullish",
+      "signal_strength": 0.3333333333333333,
+      "composite_score": 0.5702710293182761
+    },
+    {
+      "symbol": "XRPIRT",
+      "last_price": "3186520",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5504349902125927
+    },
+    {
+      "symbol": "ETHIRT",
+      "last_price": "5580636910",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5430373062864415
+    },
+    {
+      "symbol": "CAKEIRT",
+      "last_price": "5052000",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5411703332319953
+    },
+    {
+      "symbol": "ROBOIRT",
+      "last_price": "26140",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5307468495083082
+    },
+    {
+      "symbol": "1B_BABYDOGEIRT",
+      "last_price": "932650",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5289958886061186
+    },
+    {
+      "symbol": "ADAIRT",
+      "last_price": "494500",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5134031163989218
+    },
+    {
+      "symbol": "BNBIRT",
+      "last_price": "1731925210",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.5042015238519649
+    },
+    {
+      "symbol": "XIRT",
+      "last_price": "15.472",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.49759296912037354
+    },
+    {
+      "symbol": "1K_SHIBIRT",
+      "last_price": "12351",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.4967410634250241
+    },
+    {
+      "symbol": "SOLIRT",
+      "last_price": "233231760",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.4964387066099729
+    }
+  ]
+}
