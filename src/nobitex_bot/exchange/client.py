@@ -33,8 +33,10 @@ from nobitex_bot.exchange.endpoints import (
     ORDERS_UPDATE_STATUS,
     RATE_LIMITS,
     UDF_HISTORY,
+    UDF_HISTORY_TOMAN_TO_RIAL_MULTIPLIER,
     USER_TRADES_LIST,
     Endpoint,
+    is_irt_quoted_symbol,
     parse_symbol_to_currency_pair,
 )
 from nobitex_bot.exchange.models import Candle, MarketStat, OrderBook
@@ -234,6 +236,11 @@ class NobitexClient:
         if data.get("s") != "ok":
             return []
 
+        # ⚠️ udf/history قیمت بازارهای ریالی رو به تومان برمی‌گردونه، نه ریال
+        # (که واحد market/stats و ثبت سفارشه) — بدون این تبدیل، هر قیمت
+        # مشتق از کندل (ورود/SL/TP) با قیمت لحظه‌ای واقعی حدود ۹۰٪ فاصله داره.
+        price_multiplier = Decimal(UDF_HISTORY_TOMAN_TO_RIAL_MULTIPLIER) if is_irt_quoted_symbol(symbol) else Decimal(1)
+
         candles = []
         for t, o, h, l, c, v in zip(
             data["t"], data["o"], data["h"], data["l"], data["c"], data["v"], strict=True
@@ -241,10 +248,10 @@ class NobitexClient:
             candles.append(
                 Candle(
                     timestamp=int(t),
-                    open=Decimal(str(o)),
-                    high=Decimal(str(h)),
-                    low=Decimal(str(l)),
-                    close=Decimal(str(c)),
+                    open=Decimal(str(o)) * price_multiplier,
+                    high=Decimal(str(h)) * price_multiplier,
+                    low=Decimal(str(l)) * price_multiplier,
+                    close=Decimal(str(c)) * price_multiplier,
                     volume=Decimal(str(v)),
                 )
             )

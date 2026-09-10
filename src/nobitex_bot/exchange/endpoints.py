@@ -99,6 +99,25 @@ def min_order_value_for_symbol(symbol: str) -> int:
     return MIN_ORDER_VALUE_RLS
 
 
+# ⚠️ کشف‌شده از روی دادهٔ زندهٔ واقعی (نه مستندات): ``market/udf/history`` قیمت
+# بازارهای ریالی رو به **تومان** برمی‌گردونه، در حالی که ``market/stats`` (و
+# همچنین واحد واقعی ثبت سفارش — srcCurrency/dstCurrency "rls" یعنی ریال) به
+# **ریال** کار می‌کنن — دقیقاً ۱۰ برابر تومان. بدون تبدیل، هر قیمتی که از
+# کندل ساخته می‌شه (ورود/SL/TP هر ۳ استراتژی) با قیمت لحظه‌ای (از stats)
+# حدود ۹۰٪ فاصله داره و همیشه با خطای BadPrice رد می‌شه — این دقیقاً همون
+# چیزیه که باعث شد ربات، با وجود صدها سیگنال ورودِ تولیدشده در یک ماه اجرای
+# زنده، حتی یک پوزیشن هم باز نکنه (تایید شده با میانهٔ دقیق ۱۰.۰۰۰ روی ~۱۰۰۰
+# رد رخدادِ واقعی در decisions.jsonl). فقط برای نمادهای ریالی (IRT) صدق
+# می‌کنه — بازارهای تتری (USDT) این مشکل رو ندارن.
+UDF_HISTORY_TOMAN_TO_RIAL_MULTIPLIER = 10
+
+
+def is_irt_quoted_symbol(symbol: str) -> bool:
+    """آیا این نماد (فرمت udf، مثل ``BTCIRT``) در برابر ریال (تومان در واقعیت
+    API) قیمت‌گذاری شده — برخلاف بازارهای USDT."""
+    return symbol.upper().replace("-", "").replace("_", "").endswith("IRT")
+
+
 def parse_symbol_to_currency_pair(symbol: str) -> tuple[str, str]:
     """نماد سبک udf/history (مثل ``BTCIRT``, ``1M_BTTIRT``, ``BTCUSDT``) رو به
     (srcCurrency, dstCurrency) سبک ثبت سفارش (مثل ``btc``, ``rls``) تبدیل

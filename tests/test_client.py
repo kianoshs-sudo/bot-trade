@@ -53,6 +53,52 @@ def test_forbidden_resolution_raises(settings):
         client.get_ohlc_history("BTCIRT", "1", 0, 100)
 
 
+def test_get_ohlc_history_converts_irt_prices_from_toman_to_rial(settings):
+    """``market/udf/history`` قیمت بازارهای ریالی رو به تومان برمی‌گردونه، نه
+    ریال (واحد واقعی ``market/stats`` و ثبت سفارش) — دقیقاً ۱۰ برابر کمتر.
+    بدون این تبدیل، تایید شد (با ۹۸۷ نمونهٔ واقعی از یک ماه اجرای زنده،
+    میانهٔ دقیق نسبت = ۱۰.۰۰۰) که این باعث می‌شد هر سیگنالی با خطای BadPrice
+    رد بشه و ربات هیچ‌وقت پوزیشنی باز نکنه."""
+    session = MagicMock()
+    session.request.return_value = make_response(
+        200,
+        {
+            "s": "ok",
+            "t": [1700000000],
+            "o": ["100"], "h": ["110"], "l": ["90"], "c": ["105"], "v": ["50"],
+        },
+    )
+    client = NobitexClient(settings=settings, session=session)
+
+    candles = client.get_ohlc_history("BTCIRT", "60", 0, 100)
+
+    assert len(candles) == 1
+    assert candles[0].open == Decimal("1000")
+    assert candles[0].high == Decimal("1100")
+    assert candles[0].low == Decimal("900")
+    assert candles[0].close == Decimal("1050")
+    assert candles[0].volume == Decimal("50")  # حجم واحدش کوینه، نیازی به تبدیل نداره
+
+
+def test_get_ohlc_history_does_not_scale_usdt_prices(settings):
+    """بازارهای تتری (USDT) این مشکل تومان/ریال رو ندارن — قیمت باید بدون
+    تغییر بمونه."""
+    session = MagicMock()
+    session.request.return_value = make_response(
+        200,
+        {
+            "s": "ok",
+            "t": [1700000000],
+            "o": ["100"], "h": ["110"], "l": ["90"], "c": ["105"], "v": ["50"],
+        },
+    )
+    client = NobitexClient(settings=settings, session=session)
+
+    candles = client.get_ohlc_history("BTCUSDT", "60", 0, 100)
+
+    assert candles[0].close == Decimal("105")
+
+
 def test_token_required_endpoint_without_token_raises(settings):
     client = NobitexClient(settings=settings, session=MagicMock())
     with pytest.raises(RuntimeError):
