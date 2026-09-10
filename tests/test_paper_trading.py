@@ -633,3 +633,75 @@ def test_run_once_skips_reference_collection_when_not_configured(tmp_path):
     runner.run_once()  # نباید هیچ خطایی بده وقتی collector تنظیم نشده
 
     storage.close()
+
+
+def _make_two_symbol_runner(tmp_path, candles, status_path=None):
+    """رانری با دو فرصت در واچ‌لیست — برای بررسی این‌که شکست یک نماد،
+    نمادهای بعدی (و تراک‌های بعدی) رو از بین نمی‌بره."""
+    from nobitex_bot.data.storage import Storage
+
+    storage = Storage(tmp_path / "two.sqlite")
+    market_data = MagicMock()
+    market_data.get_ohlc_history.return_value = candles
+    stat = MagicMock()
+    stat.latest = Decimal("100.68")
+    market_data.get_all_market_stats.return_value = {"BTCIRT": stat, "ETHIRT": stat}
+
+    from nobitex_bot.analysis.scanner import ScanResult
+
+    def _opportunity(symbol: str) -> ScanResult:
+        return ScanResult(
+            symbol=symbol,
+            last_price=Decimal("100.68"),
+            volume_dst=Decimal("1000"),
+            atr_pct=0.02,
+            signal_direction="bullish",
+            signal_strength=1.0,
+        )
+
+    scanner = MagicMock()
+    scanner.scan.return_value = [_opportunity("BTCIRT"), _opportunity("ETHIRT")]
+
+    order_executor = MagicMock()
+    track = StrategyTrack(
+        strategy=TrendMomentumVolumeStrategy(),
+        resolution="60",
+        capital=Decimal("10000000"),
+        risk_manager=RiskManager(RiskConfig(risk_per_trade_pct=Decimal("0.02"))),
+    )
+    runner = PaperTradingRunner(
+        settings=make_settings(tmp_path),
+        market_data=market_data,
+        scanner=scanner,
+        tracks=[track],
+        order_executor=order_executor,
+        storage=storage,
+        approval_gate=AlwaysApprove(),
+        status_snapshot_path=status_path,
+    )
+    return runner, storage, order_executor, track
+
+
+def test_run_once_survives_a_failing_symbol_and_continues_with_the_rest(tmp_path):
+    """قبل از این فیکس، ``run_once`` هیچ ``try/except`` دور ``_try_enter``
+    نداشت (برخلاف ``MarketScanner.scan`` که داره) — پس یک استثنا در ثبت
+    سفارش **یک** نماد، کل چرخه رو می‌کشت: نمادهای بعدی و تراک‌های بعدی
+    هیچ‌وقت بررسی نمی‌شدن و حتی snapshot وضعیت هم نوشته نمی‌شد (به همین دلیل
+    ``status.json`` در پروداکشن ساعت‌ها کهنه موند)."""
+    status_path = tmp_path / "status.json"
+    candles = build_trend_series()[:66]
+    runner, storage, order_executor, track = _make_two_symbol_runner(tmp_path, candles, status_path)
+
+    def fail_only_for_btc(symbol, *args, **kwargs):
+        if symbol == "BTCIRT":
+            raise RuntimeError("صرافی برای این نماد خطا داد")
+        return {"status": "ok", "order": {"id": 1}}
+
+    order_executor.submit_order.side_effect = fail_only_for_btc
+
+    runner.run_once()  # نباید استثنا بده
+
+    assert "BTCIRT" not in track.open_positions  # نماد خراب باز نشد
+    assert "ETHIRT" in track.open_positions  # ولی نماد سالم بعدی پردازش شد
+    assert status_path.exists()  # و چرخه تا نوشتن snapshot رسید
+    storage.close()

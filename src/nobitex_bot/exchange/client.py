@@ -181,14 +181,27 @@ class NobitexClient:
                 # روی خطاهای ۴xx معمولاً code/message توضیحی برمی‌گردونه که با
                 # HTTPError عمومی (بدون بدنه) کاملاً گم می‌شد و عیب‌یابی رو
                 # غیرممکن می‌کرد (دقیقاً چیزی که اولین اجرای واقعی رو کور کرد).
+                #
+                # **هر** ۴xx به NobitexAPIError تبدیل می‌شه، نه فقط اون‌هایی که
+                # code/message دارن: خطاهای احراز هویت/دسترسی به سبک DRF فقط
+                # ``detail`` برمی‌گردونن (تایید شده با فراخوانی واقعی testnet:
+                # ``401`` + ``{"detail": "اطلاعات برای اعتبارسنجی ارسال نشده
+                # است."}``). چنین پاسخی قبلاً از این شرط رد می‌شد و به
+                # ``raise_for_status()`` می‌رسید، یعنی یک ``requests.HTTPError``
+                # عمومی — و ``OrderExecutor.submit_order`` که فقط
+                # ``NobitexAPIError`` رو می‌گیره، نمی‌گرفتش: سفارش روی
+                # ``pending`` بدون هیچ پیام خطایی می‌موند و استثنا کل چرخه رو
+                # می‌کشت (علت شکست اجراهای #774/#775 با نماد SOLIRT).
                 try:
                     error_body = response.json()
                 except ValueError:
                     error_body = {}
-                if isinstance(error_body, dict) and (error_body.get("message") or error_body.get("code")):
-                    raise NobitexAPIError(
-                        error_body.get("code", f"HTTP{response.status_code}"), error_body.get("message", "")
-                    )
+                if not isinstance(error_body, dict):
+                    error_body = {}
+                message = error_body.get("message") or error_body.get("detail") or ""
+                raise NobitexAPIError(
+                    error_body.get("code", f"HTTP{response.status_code}"), str(message)
+                )
 
             response.raise_for_status()
             data = response.json(parse_float=Decimal)

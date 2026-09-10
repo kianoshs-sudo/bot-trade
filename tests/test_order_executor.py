@@ -67,3 +67,25 @@ def test_submit_order_marks_failed_and_reraises_on_other_errors(storage):
     _, kwargs = client.place_order.call_args
     intent = storage.get_order_intent(kwargs["client_order_id"])
     assert intent["status"] == "failed"
+
+
+def test_submit_order_records_failure_for_non_nobitex_exceptions(storage):
+    """قبل از این فیکس، فقط ``NobitexAPIError`` باعث ثبت وضعیت ``failed``
+    می‌شد. هر استثنای دیگه‌ای (``requests.HTTPError`` از یک ۴xx بدون
+    ``code``/``message``، خطای شبکه، ``RateLimitExceededError``، یا خطای
+    امضای Ed25519) سفارش رو روی ``pending`` با ``error_message=None`` رها
+    می‌کرد — یعنی هیچ سرنخی از علت شکست باقی نمی‌موند. این دقیقاً وضعیت دو
+    رکورد واقعی SOLIRT در دیتابیس پروداکشن بود که عیب‌یابی رو کور کرد."""
+    import requests
+
+    client = MagicMock()
+    client.place_order.side_effect = requests.exceptions.HTTPError("401 Client Error")
+    executor = OrderExecutor(client=client, storage=storage)
+
+    with pytest.raises(requests.exceptions.HTTPError):
+        executor.submit_order("SOLIRT", "buy", "limit", Decimal("0.2"), Decimal("237372500"))
+
+    _, kwargs = client.place_order.call_args
+    intent = storage.get_order_intent(kwargs["client_order_id"])
+    assert intent["status"] == "failed"
+    assert "401" in intent["error_message"]

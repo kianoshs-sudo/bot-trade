@@ -64,6 +64,20 @@ class OrderExecutor:
                 client_order_id, "failed", int(time.time()), error_message=str(exc)
             )
             raise
+        except Exception as exc:
+            # هر استثنای **غیر از** NobitexAPIError هم باید ثبت بشه، وگرنه
+            # سفارش روی ``pending`` با ``error_message=None`` رها می‌شه و هیچ
+            # سرنخی از علت شکست نمی‌مونه — دقیقاً وضعیت دو رکورد واقعی SOLIRT
+            # در دیتابیس پروداکشن که عیب‌یابی رو کور کرد. مصداق‌هاش: خطای
+            # شبکه، ``RateLimitExceededError`` بعد از ۴۲۹های مکرر، و خطای
+            # امضای Ed25519 (کلید API بدفرمت).
+            self.storage.update_order_intent_status(
+                client_order_id,
+                "failed",
+                int(time.time()),
+                error_message=f"{type(exc).__name__}: {exc}",
+            )
+            raise
 
         exchange_order_id = str(response.get("order", {}).get("id", "")) if isinstance(response.get("order"), dict) else None
         self.storage.update_order_intent_status(

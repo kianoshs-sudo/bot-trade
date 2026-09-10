@@ -266,3 +266,26 @@ def test_place_order_oco_passes_mode_and_stop_limit_price(tmp_path):
     assert sent_body["stopLimitPrice"] == "42680"
     assert sent_body["srcCurrency"] == "btc"
     assert sent_body["dstCurrency"] == "usdt"
+
+
+def test_4xx_with_detail_only_body_raises_nobitex_error_not_generic_http_error(settings):
+    """نوبیتکس خطای احراز هویت/دسترسی رو به سبک DRF با **فقط** کلید ``detail``
+    برمی‌گردونه (تایید شده با فراخوانی واقعی testnet: ``401`` +
+    ``{"detail": "اطلاعات برای اعتبارسنجی ارسال نشده است."}``) — نه
+    ``code``/``message``. قبل از این فیکس، چنین پاسخی از شرط بدنهٔ خطا رد
+    می‌شد و به ``raise_for_status()`` می‌رسید، یعنی یک
+    ``requests.HTTPError`` عمومی که ``OrderExecutor.submit_order`` (که فقط
+    ``NobitexAPIError`` رو می‌گیره) نمی‌گرفتش: سفارش روی ``pending`` بدون هیچ
+    پیام خطایی می‌موند و استثنا کل چرخهٔ paper trading رو می‌کشت — دقیقاً
+    همون چیزی که در اجراهای #774/#775 اتفاق افتاد."""
+    session = MagicMock()
+    session.request.return_value = make_response(
+        401, {"detail": "اطلاعات برای اعتبارسنجی ارسال نشده است."}
+    )
+    client = NobitexClient(settings=settings, session=session)
+
+    with pytest.raises(NobitexAPIError) as exc_info:
+        client.get_market_stats()
+
+    assert exc_info.value.code == "HTTP401"
+    assert "اعتبارسنجی" in exc_info.value.message

@@ -186,7 +186,26 @@ class PaperTradingRunner:
             for opportunity in opportunities:
                 if opportunity.symbol in track.open_positions:
                     continue
-                if self._try_enter(track, opportunity.symbol):
+                # خطای یک نماد نباید کل چرخه رو بکشه — همون الگوی دفاعی که
+                # ``MarketScanner.scan`` از قبل داشت ولی اینجا نبود. بدون این،
+                # یک استثنا در ثبت سفارش **یک** نماد باعث می‌شد نمادهای بعدی و
+                # تراک‌های بعدی هیچ‌وقت بررسی نشن و حتی snapshot وضعیت هم
+                # نوشته نشه (به همین دلیل status.json در پروداکشن ساعت‌ها کهنه
+                # موند و اجراهای #774/#775 با traceback خام شکستن).
+                try:
+                    entered = self._try_enter(track, opportunity.symbol)
+                except Exception:
+                    logger.exception(
+                        "[%s] خطا در بررسی ورود برای %s — این نماد رد شد، چرخه ادامه پیدا می‌کنه",
+                        track.label,
+                        opportunity.symbol,
+                    )
+                    if self.decision_logger is not None:
+                        self.decision_logger.log(
+                            "entry_error", opportunity.symbol, track.strategy.name, "خطا در بررسی/ثبت سفارش ورود"
+                        )
+                    continue
+                if entered:
                     if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
                         break
 
