@@ -49,7 +49,11 @@ from nobitex_bot.config import Settings
 from nobitex_bot.data.market_data import MarketDataService
 from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
-from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, stats_symbol_to_udf_symbol
+from nobitex_bot.exchange.endpoints import (
+    RESOLUTION_SECONDS,
+    stats_symbol_to_udf_symbol,
+    taker_fee_rate,
+)
 from nobitex_bot.execution.order_executor import OrderExecutor
 from nobitex_bot.paper_trading.approval import ApprovalGate
 from nobitex_bot.risk.risk_manager import RiskManager
@@ -442,7 +446,9 @@ class PaperTradingRunner:
         else:
             gross_pnl = (position.entry_price - exit_price) / position.entry_price * position.size_quote
 
-        fee = position.size_quote * Decimal("0.0025") * 2
+        # نرخ واقعی همین بازار از جدول رسمی کارمزد نوبیتکس، نه یک عدد ثابت:
+        # بازار تتری در پلهٔ پایه ۰.۱۳٪ می‌گیره و ریالی ۰.۲۵٪. ×۲ برای ورود و خروج.
+        fee = position.size_quote * taker_fee_rate(position.symbol) * 2
         net_pnl = gross_pnl - fee
 
         self.storage.close_paper_trade(position.trade_id, int(time.time()), exit_price, fee, net_pnl, exit_reason)

@@ -731,3 +731,30 @@ def test_runner_passes_committed_capital_so_open_positions_shrink_the_cap(tmp_pa
 
     assert captured.get("committed_quote") == Decimal("6000000")
     storage.close()
+
+
+def test_close_position_uses_the_real_per_market_fee_rate(tmp_path):
+    """کارمزد قبلاً ``0.0025`` هاردکد بود و برای هر بازاری یکسان اعمال می‌شد.
+    بازار تتری در پلهٔ پایه ۰.۱۳٪ می‌گیره نه ۰.۲۵٪ — یعنی PnL بازارهای تتری
+    با هزینهٔ ~۲ برابر واقعی حساب می‌شد (از وقتی رتبه‌بندی حجم اون‌ها رو هم
+    وارد اسکن کرد، این دیگه فرضی نیست)."""
+    candles = build_trend_series()[:66]
+    runner, storage, _, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    size = Decimal("10000000")
+
+    trade_id = storage.open_paper_trade(
+        "BTCUSDT", track.strategy.name, "60", "buy", 1_700_000_000, Decimal("100"), size, "t",
+        stop_loss=Decimal("95"), take_profit=Decimal("110"),
+    )
+    position = OpenPosition(
+        trade_id=trade_id, symbol="BTCUSDT", strategy_name=track.strategy.name, direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("110"), size_quote=size,
+    )
+    track.open_positions["BTCUSDT"] = position
+
+    runner._close_position(track, position, Decimal("100"), "تست")
+
+    closed = storage.get_closed_paper_trades()[0]
+    # ۰.۱۳٪ رفت + ۰.۱۳٪ برگشت روی ۱۰ میلیون = ۲۶,۰۰۰ (نه ۵۰,۰۰۰ با نرخ ریالی)
+    assert Decimal(closed["fee_paid"]) == Decimal("26000")
+    storage.close()

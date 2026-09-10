@@ -25,7 +25,11 @@ import pandas as pd
 
 from nobitex_bot.analysis.indicators import MIN_CANDLES_FOR_INDICATORS, candles_to_dataframe, compute_indicators
 from nobitex_bot.backtest.metrics import BacktestMetrics, TradeResult, compute_metrics
-from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, min_order_value_for_symbol
+from nobitex_bot.exchange.endpoints import (
+    RESOLUTION_SECONDS,
+    min_order_value_for_symbol,
+    taker_fee_rate,
+)
 from nobitex_bot.exchange.models import Candle
 from nobitex_bot.risk.position_sizing import calculate_position_size
 from nobitex_bot.strategies.base import Strategy
@@ -39,7 +43,11 @@ SECONDS_PER_YEAR = 365 * 24 * 3600
 class BacktestConfig:
     initial_capital: Decimal = Decimal("10_000_000")  # پیش‌فرض: ۱۰ میلیون ریال
     risk_per_trade_pct: Decimal = Decimal("0.02")  # ۲٪ سرمایه در معرض ریسک هر معامله (سطح متعادل)
-    fee_rate: Decimal = Decimal("0.0025")  # ⚠️ تخمینی — نرخ دقیق کارمزد نوبیتکس رو verify کن
+    # ``None`` یعنی نرخ واقعی همون بازار از جدول رسمی کارمزد نوبیتکس گرفته بشه
+    # (بازار تتری در پلهٔ پایه ۰.۱۳٪، ریالی ۰.۲۵٪). قبلاً یک عدد ثابت ۰.۰۰۲۵
+    # برای همهٔ بازارها بود که هزینهٔ بازارهای تتری رو ~۲ برابر بیش‌برآورد
+    # می‌کرد. مقدار صریح همچنان اولویت داره (برای تحلیل حساسیت).
+    fee_rate: Decimal | None = None
     # ⚠️ هر دو تخمینی‌ان — هنوز دادهٔ واقعی اسپرد/اسلیپیج نوبیتکس جمع نشده.
     # بدون این دو، بک‌تست فرض می‌کرد می‌شه دقیقاً روی قیمت کندل معامله کرد —
     # که خوش‌بینانه‌تر از واقعیته (بازار واقعی همیشه یه فاصلهٔ خرید/فروش
@@ -230,7 +238,8 @@ class BacktestEngine:
         else:
             gross_pnl = (entry_price - exit_price) / entry_price * size_quote
 
-        fee = size_quote * self.config.fee_rate * 2  # کارمزد ورود + خروج
+        fee_rate = self.config.fee_rate if self.config.fee_rate is not None else taker_fee_rate(symbol)
+        fee = size_quote * fee_rate * 2  # کارمزد ورود + خروج
         net_pnl = gross_pnl - fee
         new_capital = capital + net_pnl
 

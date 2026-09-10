@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 from enum import Enum
 
 
@@ -158,3 +159,46 @@ def stats_symbol_to_udf_symbol(symbol: str) -> str:
 
 # قید محدودهٔ قیمت (خطای BadPrice)
 MAX_PRICE_DEVIATION_RATIO = 0.30
+
+
+# جدول رسمی کارمزد معاملات — از ``/v2/options`` خودِ نوبیتکس گرفته شده (نه
+# حدس و نه عدد ثابت در کد): ``nobitex.tradingFees``. پله بر اساس حجم معاملات
+# ۳۰ روزهٔ کاربر (به ریال) تعیین می‌شه.
+#
+# نکتهٔ مهم: بازارهای تتری در پلهٔ پایه ۰.۱۳٪ taker می‌گیرن در مقابل ۰.۲۵٪
+# بازارهای ریالی — تقریباً نصف. قبلاً ``0.0025`` در دو جا هاردکد بود (با
+# یادداشت «تخمینی، verify کن») که هزینهٔ بازارهای تتری رو ~۲ برابر بیش‌برآورد
+# می‌کرد. همچنین در پلهٔ پایه maker و taker بازار ریالی **هر دو** ۰.۲۵٪‌ان،
+# پس سفارش post-only در این پله هیچ صرفه‌ای نداره (تخفیف maker از پلهٔ دوم
+# شروع می‌شه).
+FEE_TIER_VOLUMES_RLS: tuple[int, ...] = (
+    0, 1_000_000_000, 3_000_000_000, 10_000_000_000, 50_000_000_000, 200_000_000_000, 800_000_000_000,
+)
+TAKER_FEES_RLS: tuple[str, ...] = ("0.0025", "0.002", "0.0019", "0.00175", "0.00155", "0.00145", "0.00135")
+MAKER_FEES_RLS: tuple[str, ...] = ("0.0025", "0.0017", "0.0015", "0.00125", "0.001", "0.0009", "0.0008")
+TAKER_FEES_USDT: tuple[str, ...] = ("0.0013", "0.0012", "0.0011", "0.001", "0.001", "0.00095", "0.0009")
+MAKER_FEES_USDT: tuple[str, ...] = ("0.001", "0.00095", "0.0009", "0.0008", "0.0007", "0.00065", "0.0006")
+
+
+def _fee_tier_index(thirty_day_volume_rls: Decimal) -> int:
+    index = 0
+    for i, threshold in enumerate(FEE_TIER_VOLUMES_RLS):
+        if thirty_day_volume_rls >= threshold:
+            index = i
+    return index
+
+
+def taker_fee_rate(symbol: str, thirty_day_volume_rls: Decimal = Decimal(0)) -> Decimal:
+    """کارمزد taker برای این نماد، به‌صورت کسری (مثلاً ``0.0025`` = ۰.۲۵٪).
+
+    taker (نه maker) فرض پیش‌فرضه چون خروج با حد ضرر یک سفارش تهاجمیه و
+    ورود limit هم ممکنه فوراً با دفتر سفارش تلاقی کنه — یعنی محافظه‌کارانه‌ترین
+    برآورد هزینه."""
+    table = TAKER_FEES_RLS if is_irt_quoted_symbol(symbol) else TAKER_FEES_USDT
+    return Decimal(table[_fee_tier_index(thirty_day_volume_rls)])
+
+
+def maker_fee_rate(symbol: str, thirty_day_volume_rls: Decimal = Decimal(0)) -> Decimal:
+    """کارمزد maker — در پلهٔ پایهٔ بازار ریالی با taker برابره (هر دو ۰.۲۵٪)."""
+    table = MAKER_FEES_RLS if is_irt_quoted_symbol(symbol) else MAKER_FEES_USDT
+    return Decimal(table[_fee_tier_index(thirty_day_volume_rls)])

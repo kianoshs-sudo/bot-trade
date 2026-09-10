@@ -139,3 +139,22 @@ def test_aggregate_and_pick_best_strategy_by_sharpe():
     aggregated = aggregate_by_strategy([good, bad])
 
     assert pick_best_strategy(aggregated) == "strategy_a"
+
+
+def test_engine_derives_fee_from_the_market_when_not_overridden():
+    """``fee_rate`` پیش‌فرض ``0.0025`` بود با یادداشت «تخمینی، verify کن» — یک
+    عدد برای همهٔ بازارها. جدول رسمی نوبیتکس (از ``/v2/options``) می‌گه بازار
+    تتری در پلهٔ پایه ۰.۱۳٪ می‌گیره نه ۰.۲۵٪، پس بک‌تست بازارهای تتری رو با
+    هزینهٔ ~۲ برابر واقعی بدبینانه ارزیابی می‌کرد. مقدار صریح باید همچنان
+    اولویت داشته باشه (برای تحلیل حساسیت)."""
+    candles = build_trend_series()
+    engine = BacktestEngine(BacktestConfig(initial_capital=Decimal("10000000")))
+
+    irt = engine.run("BTCIRT", "60", candles, TrendMomentumVolumeStrategy())
+    usdt = engine.run("BTCUSDT", "60", candles, TrendMomentumVolumeStrategy())
+
+    assert irt.trades and usdt.trades
+    irt_fee_rate = irt.trades[0].fee_paid / irt.trades[0].size_quote / 2
+    usdt_fee_rate = usdt.trades[0].fee_paid / usdt.trades[0].size_quote / 2
+    assert irt_fee_rate == Decimal("0.0025")
+    assert usdt_fee_rate == Decimal("0.0013")

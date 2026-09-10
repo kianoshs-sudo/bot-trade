@@ -61,6 +61,12 @@ def parse_args() -> argparse.Namespace:
         help="فقط N بازار پرحجم‌تر رو تحلیل کن — بدون این محدودیت، اسکن همهٔ بازارهای نوبیتکس "
         "به‌خاطر rate limit سخت‌گیر (۲۰ درخواست کندل در دقیقه) می‌تونه یک چرخه رو ساعت‌ها طول بده",
     )
+    parser.add_argument(
+        "--max-spread-pct", type=float, default=None,
+        help="بازارهایی که فاصلهٔ خرید/فروششون از این بیشتره رو کامل رد کن (مثل 0.003 برای ۰.۳٪). "
+        "اسپرد بخش بزرگی از اصطکاک معامله‌ست: در دادهٔ واقعی، اسپرد میانهٔ همهٔ بازارهای ریالی ۰.۵۱٪ بود "
+        "در مقابل ۰.۲۱٪ برای ۲۰ بازار پرحجم. خالی = بدون فیلتر (رفتار قبلی)",
+    )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument(
         "--initial-capital", type=float, default=50_000_000,
@@ -149,7 +155,12 @@ def main() -> None:
 
     storage = Storage(settings.data_dir / "paper_trading.sqlite")
     market_data = MarketDataService(client=market_client, storage=storage)
-    scanner = MarketScanner(market_data=market_data, resolution=args.scan_resolution, max_symbols=args.max_symbols)
+    scanner = MarketScanner(
+        market_data=market_data,
+        resolution=args.scan_resolution,
+        max_symbols=args.max_symbols,
+        max_spread_pct=args.max_spread_pct,
+    )
     order_executor = OrderExecutor(client=trading_client, storage=storage)
 
     # notifier جدا از approval_gate ساخته می‌شه — چون دستور «وضعیت» (پایین‌تر)

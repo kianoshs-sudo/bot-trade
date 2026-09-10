@@ -25,7 +25,11 @@ from nobitex_bot.analysis.indicators import (
     drop_unclosed_last_candle,
 )
 from nobitex_bot.data.market_data import MarketDataService
-from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, stats_symbol_to_udf_symbol
+from nobitex_bot.exchange.endpoints import (
+    RESOLUTION_SECONDS,
+    is_irt_quoted_symbol,
+    stats_symbol_to_udf_symbol,
+)
 from nobitex_bot.exchange.models import MarketStat
 
 logger = logging.getLogger(__name__)
@@ -61,6 +65,7 @@ class MarketScanner:
         weight_volume: float = 0.3,
         weight_signal: float = 0.4,
         max_symbols: int | None = 40,
+        max_spread_pct: float | None = None,
     ) -> None:
         """``max_symbols``: قید rate limit نوبیتکس برای کندل تاریخی (۲۰
         درخواست در دقیقه، محافظه‌کارانه چون مستند دقیقی در دسترس نبود) به این
@@ -80,6 +85,43 @@ class MarketScanner:
         self.weight_volume = weight_volume
         self.weight_signal = weight_signal
         self.max_symbols = max_symbols
+        self.max_spread_pct = max_spread_pct
+
+    @staticmethod
+    def spread_pct(stat: MarketStat) -> float | None:
+        """فاصلهٔ خرید/فروش به‌صورت کسری از ``bestBuy``. ``None`` یعنی
+        ``market/stats`` برای این بازار دفتر سفارش معتبری نداده (بازار
+        خالی) — در این حالت قضاوتی نمی‌کنیم."""
+        if stat.best_buy is None or stat.best_sell is None or stat.best_buy <= 0:
+            return None
+        if stat.best_sell < stat.best_buy:
+            return None
+        return float((stat.best_sell - stat.best_buy) / stat.best_buy)
+
+    @staticmethod
+    def _comparable_volume(symbol: str, udf_stats: dict[str, MarketStat]) -> Decimal:
+        """حجم معاملهٔ نماد را به یک واحد مشترک (ریال) برمی‌گردونه.
+
+        ``volumeDst`` واحدش ارز مقصدِ همون بازاره: برای بازار ریالی **ریال** و
+        برای بازار تتری **تتر** — دو مقیاس با اختلاف مرتبهٔ ~۱۰⁷. مرتب‌سازی
+        خام روی این عدد یعنی هیچ بازار تتری‌ای هیچ‌وقت وارد ``max_symbols``
+        نمی‌شه (در دادهٔ واقعی بازار، ۴۰ نماد اول ۱۰۰٪ ریالی بودن). این فقط
+        یک ناترازی آماری نیست، اثر اقتصادی داره: بازارهای تتری در پلهٔ کارمزد
+        پایه ۰.۱۳٪ taker دارن در مقابل ۰.۲۵٪ ریالی، و اسپردشون هم کمی
+        تنگ‌تره — یعنی ~۳۸٪ اصطکاک کمتر روی نیمه‌ای از صرافی که ربات
+        هیچ‌وقت نگاهش نکرده بود.
+
+        نرخ تبدیل از خودِ ``USDTIRT`` در همون پاسخ ``market/stats`` گرفته
+        می‌شه (همیشه حاضره). اگه پیدا نشد، حجم تتری دست‌نخورده برمی‌گرده —
+        محافظه‌کارانه‌ترین حالت، یعنی همون رفتار قبلی، نه یک ضریب حدسی.
+        """
+        volume = udf_stats[symbol].volume_dst or Decimal(0)
+        if not is_irt_quoted_symbol(symbol):
+            usdt_stat = udf_stats.get("USDTIRT")
+            rate = usdt_stat.latest if usdt_stat is not None else None
+            if rate:
+                return volume * rate
+        return volume
 
     def _analyze_symbol(self, symbol: str, last_price: Decimal, volume_dst: Decimal) -> ScanResult | None:
         span_seconds = RESOLUTION_SECONDS[self.resolution] * self.lookback_candles
@@ -136,7 +178,7 @@ class MarketScanner:
             target_symbols = symbols
         else:
             ranked_by_volume = sorted(
-                udf_stats.keys(), key=lambda s: udf_stats[s].volume_dst or Decimal(0), reverse=True
+                udf_stats.keys(), key=lambda s: self._comparable_volume(s, udf_stats), reverse=True
             )
             target_symbols = ranked_by_volume[: self.max_symbols] if self.max_symbols is not None else ranked_by_volume
 
@@ -145,6 +187,15 @@ class MarketScanner:
             stat = udf_stats.get(symbol)
             if stat is None or stat.latest is None:
                 continue
+            # اسپرد بخش بزرگی از اصطکاک معامله است و ``market/stats`` (که از
+            # قبل صدا زده شده) مجانی می‌دش. بازارهای کم‌عمق **قبل از** خرج‌کردن
+            # یک درخواست کندل رد می‌شن — هم هزینه رو کم می‌کنه هم سهمیهٔ
+            # rate limit رو آزاد می‌کنه برای بازارهای قابل‌معامله.
+            if self.max_spread_pct is not None:
+                spread = self.spread_pct(stat)
+                if spread is None or spread > self.max_spread_pct:
+                    logger.debug("اسپرد %s خارج از حد مجاز (%s) — رد شد", symbol, spread)
+                    continue
             try:
                 result = self._analyze_symbol(symbol, stat.latest, stat.volume_dst or Decimal(0))
             except Exception:
