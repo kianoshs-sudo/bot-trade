@@ -75,6 +75,7 @@ class RiskManager:
         capital: Decimal,
         market_price: Decimal,
         open_trades_count: int,
+        committed_quote: Decimal = Decimal(0),
         now: datetime | None = None,
     ) -> RiskDecision:
         """دروازهٔ اصلی — همهٔ قیدهای فاز ۵ رو به ترتیب چک می‌کنه."""
@@ -107,6 +108,22 @@ class RiskManager:
         )
         if position_size <= 0:
             return RiskDecision(False, "فاصلهٔ SL از قیمت ورود صفره — قابل محاسبه نیست")
+
+        # فرمول ریسک-محور فقط «ریسک ÷ فاصلهٔ SL» رو حساب می‌کنه و از سرمایهٔ
+        # موجود بی‌خبره: وقتی فاصلهٔ SL تنگ‌تر از risk_per_trade_pct بشه
+        # (مثلاً SL=۱.۵۸٪ با ریسک ۲٪)، notional از کل سرمایه بیشتر می‌شه —
+        # با سرمایهٔ واقعی ۱۰ میلیون تومان، mean_reversion پوزیشنی به اندازهٔ
+        # ۱۲۶٪ سرمایه می‌خواست و ۳ پوزیشن هم‌زمان به ۲.۸ برابر سرمایه می‌رسید.
+        # در بازار spot (بدون مارجین) این یعنی خطای موجودی یا رفتن کل سرمایه
+        # در یک معامله. سقف نسبت به سرمایهٔ **آزاد** اعمال می‌شه تا مجموع
+        # پوزیشن‌های باز هیچ‌وقت از سرمایه عبور نکنه.
+        available_capital = capital - committed_quote
+        if available_capital <= 0:
+            return RiskDecision(
+                False, f"سرمایهٔ آزاد باقی نمونده (کل {capital:.0f}، درگیر {committed_quote:.0f})"
+            )
+        if position_size > available_capital:
+            position_size = available_capital
 
         min_order_value = Decimal(min_order_value_for_symbol(signal.symbol))
         if position_size < min_order_value:

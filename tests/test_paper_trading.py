@@ -705,3 +705,29 @@ def test_run_once_survives_a_failing_symbol_and_continues_with_the_rest(tmp_path
     assert "ETHIRT" in track.open_positions  # ولی نماد سالم بعدی پردازش شد
     assert status_path.exists()  # و چرخه تا نوشتن snapshot رسید
     storage.close()
+
+
+def test_runner_passes_committed_capital_so_open_positions_shrink_the_cap(tmp_path):
+    """سقف سرمایه فقط وقتی معنا داره که رانر مبلغ درگیر در پوزیشن‌های باز رو
+    به مدیریت ریسک بده — وگرنه هر پوزیشن جدید تا کل سرمایه مجاز می‌شه و
+    مجموع از سرمایه عبور می‌کنه."""
+    candles = build_trend_series()[:66]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    track.open_positions["ETHIRT"] = OpenPosition(
+        trade_id=1, symbol="ETHIRT", strategy_name=track.strategy.name, direction="buy",
+        entry_price=Decimal("100"), stop_loss=Decimal("95"), take_profit=Decimal("110"),
+        size_quote=Decimal("6000000"),
+    )
+    captured = {}
+    real_evaluate = track.risk_manager.evaluate
+
+    def spy(*args, **kwargs):
+        captured.update(kwargs)
+        return real_evaluate(*args, **kwargs)
+
+    track.risk_manager.evaluate = spy
+
+    runner.run_once()
+
+    assert captured.get("committed_quote") == Decimal("6000000")
+    storage.close()

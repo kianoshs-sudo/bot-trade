@@ -282,7 +282,17 @@ class PaperTradingRunner:
         if self.decision_logger is not None:
             self.decision_logger.log("entry_signal", symbol, track.strategy.name, signal.reason)
 
-        decision = track.risk_manager.evaluate(signal, track.capital, market_price, len(track.open_positions))
+        # سرمایهٔ درگیر در پوزیشن‌های باز باید به مدیریت ریسک داده بشه، وگرنه
+        # سقف سرمایه بی‌اثره: هر پوزیشن جدید تا کل سرمایه مجاز می‌شه و مجموع
+        # پوزیشن‌ها از سرمایه عبور می‌کنه (که در spot ممکن نیست).
+        committed = sum((p.size_quote for p in track.open_positions.values()), Decimal(0))
+        decision = track.risk_manager.evaluate(
+            signal,
+            track.capital,
+            market_price,
+            len(track.open_positions),
+            committed_quote=committed,
+        )
         if not decision.approved:
             logger.info("[%s] سیگنال %s رد شد توسط مدیریت ریسک: %s", track.label, symbol, decision.reason)
             if self.decision_logger is not None:

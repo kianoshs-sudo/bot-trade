@@ -105,3 +105,36 @@ def test_profitable_day_does_not_halt_trading():
     rm.record_closed_trade(Decimal("500000"), now=now)
 
     assert rm.is_daily_loss_limit_hit(capital, now=now) is False
+
+
+def test_position_size_never_exceeds_available_capital():
+    """``calculate_position_size`` فقط ``ریسک ÷ فاصلهٔ SL`` رو حساب می‌کنه و
+    هیچ‌جا با سرمایهٔ موجود مقایسه نمی‌شد. با سرمایهٔ واقعی ۱۰ میلیون تومان
+    (۱۰۰ میلیون ریال) و SL به فاصلهٔ ۱.۵ برابر ATR (ATR ساعتی میانه = ۱.۰۵٪،
+    یعنی فاصلهٔ ۱.۵۸٪)، فرمول پوزیشنی به اندازهٔ **۱۲۶٪ سرمایه** پیشنهاد
+    می‌داد — در بازار spot یعنی یا خطای موجودی یا رفتن کل سرمایه در یک معامله."""
+    manager = RiskManager(RiskConfig(risk_per_trade_pct=Decimal("0.02")))
+    capital = Decimal("100000000")
+    # فاصلهٔ SL = ۱.۵۸٪ -> فرمول خام ۱۲۶٪ سرمایه می‌ده
+    signal = make_signal(entry=100000, stop_loss=98420, take_profit=104000)
+
+    decision = manager.evaluate(signal, capital, Decimal("100000"), open_trades_count=0)
+
+    assert decision.approved
+    assert decision.position_size_quote <= capital
+
+
+def test_capital_committed_to_open_positions_shrinks_the_cap():
+    """سقف باید نسبت به سرمایهٔ **آزاد** باشه، نه کل سرمایه — وگرنه چند
+    پوزیشن هم‌زمان مجموعاً از سرمایه بیشتر می‌شن (با ``max_concurrent_trades``
+    پیش‌فرض ۳ و این فاصلهٔ SL، مجموع به ۲.۸ برابر سرمایه می‌رسید)."""
+    manager = RiskManager(RiskConfig(risk_per_trade_pct=Decimal("0.02")))
+    capital = Decimal("100000000")
+    signal = make_signal(entry=100000, stop_loss=98420, take_profit=104000)
+
+    decision = manager.evaluate(
+        signal, capital, Decimal("100000"), open_trades_count=1, committed_quote=Decimal("70000000")
+    )
+
+    assert decision.approved
+    assert decision.position_size_quote <= Decimal("30000000")
