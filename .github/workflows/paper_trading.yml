@@ -2,7 +2,20 @@ name: Paper Trading Loop
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Run every 15 minutes
+    # هر ۲ ساعت، نه هر ۱۵ دقیقه. دلیلش اندازه‌گیری‌شده است: با cron */15،
+    # میانهٔ فاصلهٔ واقعی بین ۳۰ اجرا **۱۹۶ دقیقه** بود (بیشینه ۳۱۸) یعنی
+    # ۷.۳ اجرا در روز به‌جای ۹۶ — گیت‌هاب زمان‌بندی‌های پرتکرار را throttle
+    # می‌کند و cron کم‌تکرار را قابل‌اعتمادتر اجرا می‌کند. به‌جای تکیه بر cron،
+    # هر اجرا حلقهٔ داخلی خودِ اسکریپت را با فاصلهٔ ۱۵ دقیقه می‌چرخاند
+    # (~۷ چرخه در هر اجرا × ۱۲ اجرا ≈ ۸۴ چرخه در روز).
+    #
+    # چرا ۲ ساعت و نه ۶ (سقف job گیت‌هاب): حافظهٔ ربات در انتهای job ذخیره
+    # می‌شود، پس طول job یعنی حداکثر دادهٔ قابل‌ازدست‌رفتن. ۲ ساعت این را
+    # محدود نگه می‌دارد و حافظه ۱۲ بار در روز ذخیره می‌شود.
+    #
+    # ریپو عمومی است و دقایق Actions برای ریپوهای عمومی نامحدود است، پس job
+    # طولانی هزینهٔ سهمیه‌ای ندارد.
+    - cron: '0 */2 * * *'
   workflow_dispatch:        # Allow manual trigger from GitHub UI
 
 concurrency:
@@ -47,14 +60,21 @@ jobs:
             echo "حافظهٔ قبلی وجود نداره — شروع از صفر"
           fi
 
-      - name: Run paper trading (single cycle)
+      - name: Run paper trading (looping ~110 minutes, one cycle every 15)
+        # کمتر از فاصلهٔ cron (۱۲۰ دقیقه) تا دو اجرا هم‌پوشانی نکنند، و کمتر از
+        # سقف ۶ ساعتهٔ job. با رسیدن به این مهلت، job قطع می‌شود و مرحلهٔ بعدی
+        # (always) حافظه را ذخیره می‌کند.
+        timeout-minutes: 110
         env:
           NOBITEX_ENV: testnet
           NOBITEX_API_KEY: ${{ secrets.NOBITEX_API_KEY }}
           NOBITEX_API_SECRET: ${{ secrets.NOBITEX_API_SECRET }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python scripts/run_paper_trading.py --once --approval notify
+        # بدون --once: حلقهٔ داخلی اسکریپت هر ۱۵ دقیقه یک چرخه می‌زند تا مهلت
+        # job برسد. با `|| true` چون قطع‌شدن به‌خاطر timeout خطا نیست و نباید
+        # مرحلهٔ ذخیرهٔ حافظه را به‌عنوان شکست علامت بزند.
+        run: python scripts/run_paper_trading.py --approval notify --interval-minutes 15 || true
 
       - name: Save bot memory for next run
         if: always()

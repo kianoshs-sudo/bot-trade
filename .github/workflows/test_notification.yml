@@ -1,0 +1,37 @@
+name: Send Test Notification
+
+# فقط دستی. هدفش دیدن ظاهر واقعی پیام‌ها در بله/تلگرام است، با همان Secretهای
+# موجود — پس هیچ توکنی لازم نیست جابه‌جا یا جایی کپی شود.
+#
+# اجرا: تب Actions → «Send Test Notification» → Run workflow.
+#
+# به هیچ endpoint معاملاتی دست نمی‌زند و هیچ سفارشی ثبت نمی‌کند؛ فقط متن
+# می‌فرستد. اگر پیامی نرسید، لاگ همین اجرا علت دقیق تلگرام را نشان می‌دهد.
+on:
+  workflow_dispatch:
+
+jobs:
+  send-test-notification:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Send the sample messages
+        env:
+          # NOBITEX_ENV لازم است چون config آن را می‌خواند، ولی این اسکریپت هیچ
+          # درخواستی به صرافی نمی‌فرستد — نه عمومی و نه معاملاتی.
+          NOBITEX_ENV: testnet
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          BALE_BOT_TOKEN: ${{ secrets.BALE_TOKEN }}
+          BALE_CHAT_ID: ${{ secrets.BALE_CHAT_ID }}
+        run: python scripts/send_test_notification.py
