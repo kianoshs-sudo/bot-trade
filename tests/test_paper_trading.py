@@ -473,10 +473,14 @@ def test_open_position_generates_and_persists_exit_client_order_id(tmp_path):
     open_trades = storage.get_open_paper_trades()
     assert open_trades[0]["exit_client_order_id"] == position.exit_client_order_id
 
-    # همون ID باید به submit_order سفارش OCO پاس داده شده باشه
-    oco_calls = [c for c in order_executor.submit_order.call_args_list if c.kwargs.get("client_order_id")]
+    # همون ID باید به submit_order سفارش OCO پاس داده شده باشه. سفارش *ورود* هم
+    # حالا client_order_id صریح داره (کد پیوند پیام‌ها از اون مشتق می‌شه)، پس
+    # انتخاب باید بر اساس نوع سفارش باشه نه «کدام‌یک شناسه دارد».
+    oco_calls = [c for c in order_executor.submit_order.call_args_list if c.args[2] == "oco"]
     assert len(oco_calls) == 1
     assert oco_calls[0].kwargs["client_order_id"] == position.exit_client_order_id
+    entry_calls = [c for c in order_executor.submit_order.call_args_list if c.args[2] == "limit"]
+    assert entry_calls[0].kwargs["client_order_id"] != position.exit_client_order_id
     storage.close()
 
 

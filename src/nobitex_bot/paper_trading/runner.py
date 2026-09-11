@@ -56,6 +56,12 @@ from nobitex_bot.exchange.endpoints import (
     taker_fee_rate,
 )
 from nobitex_bot.execution.order_executor import OrderExecutor
+from nobitex_bot.notifications.messages import (
+    format_order_failed_message,
+    format_order_placed_message,
+    format_signal_message,
+    signal_ref,
+)
 from nobitex_bot.paper_trading.approval import ApprovalGate
 from nobitex_bot.risk.risk_manager import RiskManager
 from nobitex_bot.strategies.base import Strategy
@@ -113,6 +119,12 @@ class PaperTradingRunner:
     status_snapshot_path: object | None = None  # pathlib.Path
     risk_config_path: object | None = None  # pathlib.Path — برای بازخوانی زندهٔ تنظیمات از داشبورد
     reference_collector: ReferenceMarketCollector | None = None  # فاز A — جمع‌آوری دادهٔ مرجع کوینبیس (اختیاری)
+    # اعلان‌رسانی از **رانر** انجام می‌شه، نه از دروازهٔ تایید — چون فقط اینجا
+    # معلومه سفارش واقعاً ثبت شد یا نه. قبلاً ``NotifyingAutoApproveGate`` پیام
+    # «✅ پوزیشن جدید» رو *قبل از* ثبت سفارش می‌فرستاد: در دادهٔ زنده ۶۷ بار این
+    # پیام رفت و صفر پوزیشن باز شد، چون هر ۶۷ سفارش با HTTP401 رد شده بود و
+    # کاربر هیچ‌وقت خبردار نشد.
+    notifier: object | None = None  # nobitex_bot.notifications.base.Notifier
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -351,6 +363,15 @@ class PaperTradingRunner:
         self._open_position(track, signal, decision.position_size_quote, quote_rate)
         return True
 
+    def _notify(self, text: str) -> None:
+        """بهترین‌تلاش: شکست در ارسال اعلان هرگز نباید چرخهٔ معامله را بشکند."""
+        if self.notifier is None:
+            return
+        try:
+            self.notifier.send_message(text)
+        except Exception:
+            logger.exception("ارسال اعلان ناموفق بود — چرخه ادامه پیدا می‌کند")
+
     def _open_position(
         self, track: StrategyTrack, signal, size_quote: Decimal, quote_rate: Decimal = Decimal(1)
     ) -> None:
@@ -362,7 +383,29 @@ class PaperTradingRunner:
         size_in_quote_currency = size_quote / quote_rate
         amount = size_in_quote_currency / signal.entry_price_hint
 
-        self.order_executor.submit_order(signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint)
+        # کد پیوند از همین client_order_id مشتق می‌شه، پس پیام نتیجه هم به
+        # سیگنالش وصله و هم در جدول order_intents قابل ردیابیه.
+        entry_client_order_id = str(uuid.uuid4())
+        ref = signal_ref(entry_client_order_id)
+        self._notify(format_signal_message(signal, size_quote, ref, quote_rate))
+
+        try:
+            response = self.order_executor.submit_order(
+                signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint,
+                client_order_id=entry_client_order_id,
+            )
+        except Exception as exc:
+            # شکست باید صریح اعلام بشه، با علت عیناً — خلاصه‌کردنش همون کاری بود
+            # که HTTP401 رو یک ماه پنهان نگه داشت.
+            self._notify(format_order_failed_message(signal, ref, f"{type(exc).__name__}: {exc}"))
+            raise
+
+        exchange_order_id = None
+        if isinstance(response, dict) and isinstance(response.get("order"), dict):
+            exchange_order_id = str(response["order"].get("id") or "") or None
+        self._notify(
+            format_order_placed_message(signal, ref, size_in_quote_currency, exchange_order_id)
+        )
 
         # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
         # stopLimitPrice کمی بدتر از stopPrice تا حتی در نوسان آنی هم قابل اجرا بمونه

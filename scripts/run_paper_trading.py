@@ -189,9 +189,11 @@ def main() -> None:
         approval_gate = AutoApproveGate()
     elif args.approval == "notify":
         # پول واقعی درگیر نیست (Paper Trading) — بدون انتظار تایید، فوری تایید
-        # می‌شه و فقط یه پیام اطلاع‌رسانی می‌ره. اینه که چرخه‌ها دیگه به‌خاطر
-        # چند سیگنال پشت‌سرهم (هرکدوم تا ۵ دقیقه با messaging) کند نمی‌شن.
-        approval_gate = NotifyingAutoApproveGate(notifier=notifier)
+        # می‌شه. اعلان‌رسانی از خودِ runner انجام می‌شه، نه از این دروازه: فقط
+        # آنجا معلومه سفارش واقعاً ثبت شد یا نه. پیام قبلیِ این دروازه
+        # «✅ پوزیشن جدید» رو *قبل از* ثبت سفارش می‌فرستاد و در دادهٔ زنده ۶۷ بار
+        # موفقیتی رو اعلام کرد که هیچ‌وقت رخ نداد.
+        approval_gate = AutoApproveGate()
     else:  # messaging — تایید صریح با انتظار، برای فاز ۷ (پول واقعی) نگه داشته شده
         approval_gate = MessagingApprovalGate(notifier=notifier)
 
@@ -230,6 +232,7 @@ def main() -> None:
         status_snapshot_path=status_snapshot_path,
         risk_config_path=settings.data_dir / "risk_config.json",
         reference_collector=reference_collector,
+        notifier=notifier,
     )
 
     # پوزیشن‌های باز/سرمایهٔ چرخه‌های قبلی از دیتابیس برگردونده می‌شن — بدون این،
