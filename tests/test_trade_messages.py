@@ -56,6 +56,22 @@ def test_signal_message_shows_sl_and_tp_as_percentages():
     assert "+۷.۱٪" in text  # (0.22-0.2054)/0.2054
 
 
+def test_signal_message_shows_the_profit_amount_if_the_target_hits():
+    """ریسک بدون سود نیمی از تصویر است — برای تصمیم‌گیری باید هر دو مبلغ دیده
+    شوند، نه فقط درصدها."""
+    text = format_signal_message(make_signal(), Decimal("13337662"), "AAAAAA", Decimal("211000"))
+    # حجم ۶۳.۲۱ تتر، فاصلهٔ TP = ۷.۱۱٪  ->  سود ≈ ۴.۴۹ تتر
+    assert "سود" in text
+    assert "۴.۴۹ تتر" in text
+
+
+def test_signal_message_shows_the_reward_to_risk_ratio():
+    """نسبت سود به ریسک عددی است که کیفیت معامله را در یک نگاه می‌گوید."""
+    text = format_signal_message(make_signal(), Decimal("13337662"), "AAAAAA", Decimal("211000"))
+    assert "سود/ریسک" in text
+    assert "۰.۹۵" in text  # ۷.۱۱٪ ÷ ۷.۵٪
+
+
 def test_signal_message_does_not_claim_a_position_was_opened():
     """پیام قبلی «✅ پوزیشن جدید» را **قبل از** ثبت سفارش می‌فرستاد و ۶۷ بار
     موفقیتی را اعلام کرد که هرگز رخ نداد."""

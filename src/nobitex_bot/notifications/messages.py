@@ -37,11 +37,15 @@ def signal_ref(client_order_id: str | None) -> str:
     return client_order_id.replace("-", "")[:REF_LENGTH].upper()
 
 
-def _risk_amount(signal: TradeSignal, size_quote: Decimal) -> Decimal | None:
-    """مبلغی که اگر SL بخورد از دست می‌رود — عددی که واقعاً اهمیت دارد."""
+def _amount_at_level(signal: TradeSignal, size_quote: Decimal, level: Decimal) -> Decimal | None:
+    """مبلغ سود یا زیان اگر قیمت به این سطح برسد.
+
+    روی ارزش اسمی پوزیشن حساب می‌شود و کارمزد را در نظر نمی‌گیرد — کارمزد
+    هنگام بستن معامله در ``_close_position`` اعمال می‌شود.
+    """
     if signal.entry_price_hint == 0:
         return None
-    distance = abs(signal.entry_price_hint - signal.stop_loss) / signal.entry_price_hint
+    distance = abs(signal.entry_price_hint - level) / signal.entry_price_hint
     return size_quote * distance
 
 
@@ -56,8 +60,10 @@ def format_signal_message(
     sl_pct = pct_change(signal.entry_price_hint, signal.stop_loss)
     tp_pct = pct_change(signal.entry_price_hint, signal.take_profit)
     size_in_quote = size_quote / quote_rate if quote_rate else size_quote
-    risk = _risk_amount(signal, size_quote)
+    risk = _amount_at_level(signal, size_quote, signal.stop_loss)
+    reward = _amount_at_level(signal, size_quote, signal.take_profit)
     risk_in_quote = risk / quote_rate if (risk is not None and quote_rate) else None
+    reward_in_quote = reward / quote_rate if (reward is not None and quote_rate) else None
 
     lines = [
         f"🔵 سیگنال ورود · #{ref}",
@@ -72,8 +78,15 @@ def format_signal_message(
         "",
         f"حجم         {fa_money(size_in_quote, signal.symbol)}",
     ]
+    if reward_in_quote is not None:
+        lines.append(f"سود        {fa_money(reward_in_quote, signal.symbol)} اگر حد سود بخورد")
     if risk_in_quote is not None:
         lines.append(f"ریسک        {fa_money(risk_in_quote, signal.symbol)} اگر حد ضرر بخورد")
+    if reward_in_quote is not None and risk_in_quote:
+        # نسبت، نه قیمت: دو رقم اعشار. fa_price دقتش را با بزرگی عدد تنظیم
+        # می‌کند که برای قیمت درست است ولی برای یک نسبت ۰.۹۴۸۱ می‌داد.
+        ratio = (reward_in_quote / risk_in_quote).quantize(Decimal("0.01"))
+        lines.append(f"سود/ریسک    {fa_price(ratio)}")
     lines += ["", f"دلیل: {signal.reason}", "", "⏳ در حال ارسال سفارش به صرافی…"]
     return "\n".join(lines)
 
