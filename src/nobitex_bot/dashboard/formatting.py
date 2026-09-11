@@ -17,6 +17,9 @@ _EVENT_LABELS = {
     "approval_rejected": ("رد شد (کاربر تایید نکرد)", "muted"),
     "position_opened": ("پوزیشن باز شد", "success"),
     "position_closed": ("پوزیشن بسته شد", "neutral"),
+    # بدون این، رویداد entry_error (که با ایزوله‌سازی خطای هر نماد اضافه شد)
+    # در داشبورد با نام خام انگلیسی‌ش نمایش داده می‌شد.
+    "entry_error": ("خطا در ثبت سفارش", "danger"),
 }
 
 _SYMBOL_SUFFIXES = ("USDT", "IRT")

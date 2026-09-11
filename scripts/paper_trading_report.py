@@ -16,16 +16,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from nobitex_bot.backtest.metrics import TradeResult, compute_metrics
 from nobitex_bot.config import get_settings
 from nobitex_bot.data.storage import Storage
+from nobitex_bot.monitoring.signal_stats import compute_signal_stats, format_signal_stats
 
 
 def main() -> None:
     settings = get_settings()
     storage = Storage(settings.data_dir / "paper_trading.sqlite")
 
+    # آمار سیگنال همیشه چاپ می‌شه، نه فقط وقتی معامله‌ای بسته شده — قبلاً این
+    # اسکریپت با صفر معاملهٔ موفق فقط یک جملهٔ «چیزی ثبت نشده» چاپ می‌کرد و
+    # کاربر هیچ آماری نداشت، در حالی که هزاران سیگنال ثبت شده بود و ۱۰۰٪
+    # تلاش‌های ثبت سفارش با خطا برمی‌گشتن — هیچ‌کدوم دیده نمی‌شد.
+    print(format_signal_stats(compute_signal_stats(settings.data_dir / "decisions.jsonl")))
+    print()
+
     closed = storage.get_closed_paper_trades()
     if not closed:
-        print("هنوز هیچ معاملهٔ بسته‌شده‌ای در Paper Trading ثبت نشده.")
+        print("— عملکرد معاملات —")
+        print("هنوز هیچ معاملهٔ بسته‌شده‌ای ثبت نشده (قیف بالا نشان می‌دهد کجا متوقف شده).")
+        storage.close()
         return
+
+    print("— عملکرد معاملات —")
 
     by_track: dict[tuple[str, str], list[dict]] = {}
     for row in closed:

@@ -758,3 +758,27 @@ def test_close_position_uses_the_real_per_market_fee_rate(tmp_path):
     # ۰.۱۳٪ رفت + ۰.۱۳٪ برگشت روی ۱۰ میلیون = ۲۶,۰۰۰ (نه ۵۰,۰۰۰ با نرخ ریالی)
     assert Decimal(closed["fee_paid"]) == Decimal("26000")
     storage.close()
+
+
+def test_entry_error_record_carries_the_real_exception_message(tmp_path):
+    """رکورد ``entry_error`` یک پیام عمومی ثابت می‌نوشت، پس علت واقعی فقط در
+    ستون ``error_message`` دیتابیس می‌موند و در آمار/داشبورد دیده نمی‌شد —
+    کاربر ۶۷ خطا می‌دید با متن «خطا در بررسی/ثبت سفارش ورود» و هیچ سرنخی از
+    این‌که علتش ``HTTP401: API key is invalid.`` بوده."""
+    candles = build_trend_series()[:66]
+    runner, storage, order_executor, track = make_runner(tmp_path, AlwaysApprove(), candles)
+    recorded = []
+
+    class _Spy:
+        def log(self, event_type, symbol, strategy_name, reason, details=None):
+            recorded.append((event_type, reason))
+
+    runner.decision_logger = _Spy()
+    order_executor.submit_order.side_effect = RuntimeError("HTTP401: API key is invalid.")
+
+    runner.run_once()
+
+    errors = [reason for event, reason in recorded if event == "entry_error"]
+    assert errors, "رکورد entry_error ثبت نشد"
+    assert "HTTP401: API key is invalid." in errors[0]
+    storage.close()

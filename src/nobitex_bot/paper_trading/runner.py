@@ -198,15 +198,23 @@ class PaperTradingRunner:
                 # موند و اجراهای #774/#775 با traceback خام شکستن).
                 try:
                     entered = self._try_enter(track, opportunity.symbol)
-                except Exception:
+                except Exception as exc:
                     logger.exception(
                         "[%s] خطا در بررسی ورود برای %s — این نماد رد شد، چرخه ادامه پیدا می‌کنه",
                         track.label,
                         opportunity.symbol,
                     )
                     if self.decision_logger is not None:
+                        # پیام واقعی استثنا ثبت می‌شه، نه یک متن عمومی ثابت —
+                        # وگرنه علت فقط در ستون error_message دیتابیس می‌مونه و
+                        # در آمار/داشبورد دیده نمی‌شه: کاربر ۶۷ خطا می‌دید با
+                        # متن «خطا در بررسی/ثبت سفارش ورود» و هیچ سرنخی از
+                        # این‌که علتش «HTTP401: API key is invalid.» بوده.
                         self.decision_logger.log(
-                            "entry_error", opportunity.symbol, track.strategy.name, "خطا در بررسی/ثبت سفارش ورود"
+                            "entry_error",
+                            opportunity.symbol,
+                            track.strategy.name,
+                            f"خطا در ثبت سفارش ورود — {type(exc).__name__}: {exc}",
                         )
                     continue
                 if entered:
