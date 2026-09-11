@@ -289,3 +289,53 @@ def test_4xx_with_detail_only_body_raises_nobitex_error_not_generic_http_error(s
 
     assert exc_info.value.code == "HTTP401"
     assert "اعتبارسنجی" in exc_info.value.message
+
+
+def test_public_endpoints_do_not_carry_the_api_key(settings):
+    """هدر احراز هویت بی‌قیدوشرط ساخته می‌شد، حتی برای endpointهای عمومی که
+    توکن نمی‌خواهند. آن درخواست‌ها به میزبان **پروداکشن** می‌روند (دادهٔ بازار
+    همیشه از بازار واقعی خوانده می‌شود)، پس کلید API مرتب به پروداکشن ارائه
+    می‌شد بدون هیچ نیازی. خواندنی بودنشان یعنی هیچ عملی ممکن نبود، ولی ارائهٔ
+    بی‌دلیل یک اعتبارنامه سطح حمله را بی‌جهت باز می‌گذارد."""
+    from dataclasses import replace
+
+    signed = replace(settings, api_key="a" * 43, api_secret="b" * 43)
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"status": "ok", "stats": {}})
+    client = NobitexClient(settings=signed, session=session)
+
+    client.get_market_stats()
+
+    headers = session.request.call_args.kwargs["headers"]
+    assert "Nobitex-Key" not in headers
+    assert "Nobitex-Signature" not in headers
+    assert "Authorization" not in headers
+    assert "User-Agent" in headers  # شناسهٔ ربات باید بماند
+
+
+def test_authenticated_endpoints_still_carry_credentials(settings):
+    from dataclasses import replace
+
+    signed = replace(settings, api_token="tok")
+    session = MagicMock()
+    session.request.return_value = make_response(200, {"status": "ok", "orders": []})
+    client = NobitexClient(settings=signed, session=session)
+
+    client.list_orders()
+
+    assert session.request.call_args.kwargs["headers"]["Authorization"] == "Token tok"
+
+
+def test_no_api_key_creation_endpoint_exists():
+    """یک ربات معامله‌گر هیچ کاری با ساختن کلید API ندارد. endpoint ``/apikeys/create``
+    تعریف شده بود و هیچ‌جا صدا زده نمی‌شد — کد مرده‌ای که یک قابلیت خطرناک را
+    در دسترس می‌گذاشت."""
+    from nobitex_bot.exchange import endpoints
+
+    assert not hasattr(endpoints, "APIKEYS_CREATE")
+    # فیلتر بر اساس نوع، نه «هر چیزی که .path دارد» — ماژول ``os`` هم .path دارد
+    paths = [v.path for v in vars(endpoints).values() if isinstance(v, endpoints.Endpoint)]
+    assert paths, "هیچ endpointی پیدا نشد — فیلتر تست اشتباه است"
+    assert not any("apikey" in p.lower() for p in paths)
+    forbidden = ("withdraw", "transfer", "wallet", "deposit", "bank", "card", "shaba", "iban")
+    assert not any(word in p.lower() for p in paths for word in forbidden)

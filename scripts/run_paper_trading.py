@@ -67,6 +67,13 @@ def parse_args() -> argparse.Namespace:
         "اسپرد بخش بزرگی از اصطکاک معامله‌ست: در دادهٔ واقعی، اسپرد میانهٔ همهٔ بازارهای ریالی ۰.۵۱٪ بود "
         "در مقابل ۰.۲۱٪ برای ۲۰ بازار پرحجم. خالی = بدون فیلتر (رفتار قبلی)",
     )
+    parser.add_argument(
+        "--simulate", action="store_true",
+        help="شبیه‌سازی خالص: هیچ سفارشی به صرافی فرستاده نمی‌شه و معاملهٔ کاغذی مستقیم ثبت می‌شه. "
+        "برای پاسخ به «سرمایه روی این سیگنال‌ها چه می‌شه» به صرافی نیازی نیست — و بدون این فلگ، "
+        "ثبت معاملهٔ کاغذی به موفقیت سفارش گره خورده: وقتی صرافی رد می‌کنه (مثلاً کلید API نامعتبر)، "
+        "هیچ معامله‌ای حتی مجازی ثبت نمی‌شه و منحنی سرمایه هیچ‌وقت شکل نمی‌گیره",
+    )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument(
         "--initial-capital", type=float, default=50_000_000,
@@ -233,6 +240,7 @@ def main() -> None:
         risk_config_path=settings.data_dir / "risk_config.json",
         reference_collector=reference_collector,
         notifier=notifier,
+        simulate=args.simulate,
     )
 
     # پوزیشن‌های باز/سرمایهٔ چرخه‌های قبلی از دیتابیس برگردونده می‌شن — بدون این،

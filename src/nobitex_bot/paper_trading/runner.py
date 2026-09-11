@@ -125,6 +125,13 @@ class PaperTradingRunner:
     # پیام رفت و صفر پوزیشن باز شد، چون هر ۶۷ سفارش با HTTP401 رد شده بود و
     # کاربر هیچ‌وقت خبردار نشد.
     notifier: object | None = None  # nobitex_bot.notifications.base.Notifier
+    # شبیه‌سازی خالص: هیچ سفارشی به صرافی نمی‌ره و معاملهٔ کاغذی مستقیم ثبت می‌شه.
+    # چرا لازم شد: سوال «سرمایه روی این سیگنال‌ها چه می‌شه» به صرافی نیازی
+    # نداره، ولی ثبت معاملهٔ کاغذی به موفقیت سفارش گره خورده بود (submit_order
+    # قبل از open_paper_trade صدا زده می‌شه). در دادهٔ زنده هر ۶۷ سفارش با
+    # HTTP401 رد شد و نتیجه‌اش این بود که هیچ معامله‌ای — حتی مجازی — ثبت نشد و
+    # منحنی سرمایه هیچ‌وقت شکل نگرفت.
+    simulate: bool = False
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -389,44 +396,31 @@ class PaperTradingRunner:
         ref = signal_ref(entry_client_order_id)
         self._notify(format_signal_message(signal, size_quote, ref, quote_rate))
 
-        try:
-            response = self.order_executor.submit_order(
-                signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint,
-                client_order_id=entry_client_order_id,
+        exit_client_order_id = None
+        if self.simulate:
+            # شبیه‌سازی خالص: هیچ درخواستی به صرافی نمی‌ره. خروج با منطق قیمتیِ
+            # همیشگیِ ``_check_exits`` انجام می‌شه (که بدون سفارش OCO هم کار
+            # می‌کنه)، پس منحنی سرمایه کامل شکل می‌گیره.
+            self._notify(format_order_placed_message(signal, ref, size_in_quote_currency, "شبیه‌سازی"))
+        else:
+            try:
+                response = self.order_executor.submit_order(
+                    signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint,
+                    client_order_id=entry_client_order_id,
+                )
+            except Exception as exc:
+                # شکست باید صریح اعلام بشه، با علت عیناً — خلاصه‌کردنش همون کاری بود
+                # که HTTP401 رو یک ماه پنهان نگه داشت.
+                self._notify(format_order_failed_message(signal, ref, f"{type(exc).__name__}: {exc}"))
+                raise
+
+            exchange_order_id = None
+            if isinstance(response, dict) and isinstance(response.get("order"), dict):
+                exchange_order_id = str(response["order"].get("id") or "") or None
+            self._notify(
+                format_order_placed_message(signal, ref, size_in_quote_currency, exchange_order_id)
             )
-        except Exception as exc:
-            # شکست باید صریح اعلام بشه، با علت عیناً — خلاصه‌کردنش همون کاری بود
-            # که HTTP401 رو یک ماه پنهان نگه داشت.
-            self._notify(format_order_failed_message(signal, ref, f"{type(exc).__name__}: {exc}"))
-            raise
-
-        exchange_order_id = None
-        if isinstance(response, dict) and isinstance(response.get("order"), dict):
-            exchange_order_id = str(response["order"].get("id") or "") or None
-        self._notify(
-            format_order_placed_message(signal, ref, size_in_quote_currency, exchange_order_id)
-        )
-
-        # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
-        # stopLimitPrice کمی بدتر از stopPrice تا حتی در نوسان آنی هم قابل اجرا بمونه
-        # (طبق مستندات رسمی: فروش -> price > قیمت بازار > stopPrice/stopLimitPrice).
-        # client_order_id از قبل تولید و ذخیره می‌شه تا چرخه‌های بعدی بتونن
-        # وضعیت واقعی این سفارش رو از خودِ صرافی استعلام کنن (_check_exits).
-        exit_side = _opposite(signal.direction)
-        exit_client_order_id = str(uuid.uuid4())
-        stop_limit_buffer = signal.stop_loss * STOP_LIMIT_BUFFER_PCT
-        stop_limit_price = (
-            signal.stop_loss - stop_limit_buffer if exit_side == "sell" else signal.stop_loss + stop_limit_buffer
-        )
-        self.order_executor.submit_order(
-            signal.symbol,
-            exit_side,
-            "oco",
-            amount,
-            signal.take_profit,
-            extra_params={"mode": "oco", "stopPrice": signal.stop_loss, "stopLimitPrice": stop_limit_price},
-            client_order_id=exit_client_order_id,
-        )
+            exit_client_order_id = self._submit_exit_order(signal, amount)
 
         trade_id = self.storage.open_paper_trade(
             signal.symbol, track.strategy.name, track.resolution, signal.direction, int(time.time()),
@@ -449,8 +443,36 @@ class PaperTradingRunner:
         if self.decision_logger is not None:
             self.decision_logger.log(
                 "position_opened", signal.symbol, track.strategy.name, signal.reason,
-                details={"entry_price": str(signal.entry_price_hint), "stop_loss": str(signal.stop_loss), "take_profit": str(signal.take_profit)},
+                details={
+                    "entry_price": str(signal.entry_price_hint),
+                    "stop_loss": str(signal.stop_loss),
+                    "take_profit": str(signal.take_profit),
+                    "simulated": self.simulate,
+                },
             )
+
+    def _submit_exit_order(self, signal, amount: Decimal) -> str:
+        # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
+        # stopLimitPrice کمی بدتر از stopPrice تا حتی در نوسان آنی هم قابل اجرا بمونه
+        # (طبق مستندات رسمی: فروش -> price > قیمت بازار > stopPrice/stopLimitPrice).
+        # client_order_id از قبل تولید و ذخیره می‌شه تا چرخه‌های بعدی بتونن
+        # وضعیت واقعی این سفارش رو از خودِ صرافی استعلام کنن (_check_exits).
+        exit_side = _opposite(signal.direction)
+        exit_client_order_id = str(uuid.uuid4())
+        stop_limit_buffer = signal.stop_loss * STOP_LIMIT_BUFFER_PCT
+        stop_limit_price = (
+            signal.stop_loss - stop_limit_buffer if exit_side == "sell" else signal.stop_loss + stop_limit_buffer
+        )
+        self.order_executor.submit_order(
+            signal.symbol,
+            exit_side,
+            "oco",
+            amount,
+            signal.take_profit,
+            extra_params={"mode": "oco", "stopPrice": signal.stop_loss, "stopLimitPrice": stop_limit_price},
+            client_order_id=exit_client_order_id,
+        )
+        return exit_client_order_id
 
     def _check_exits(self, track: StrategyTrack) -> None:
         stats = self._udf_keyed_market_stats()

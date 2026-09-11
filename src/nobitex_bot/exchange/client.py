@@ -126,7 +126,16 @@ class NobitexClient:
         attempt = 0
         while True:
             self.rate_limiter.acquire(endpoint.rate_limit_bucket)
-            request_headers = self._auth_headers(endpoint.method.value, signed_path, body_str)
+            # اعتبارنامه فقط روی endpointهایی که واقعاً لازمش دارن فرستاده می‌شه.
+            # قبلاً بی‌قیدوشرط ساخته می‌شد، حتی برای endpointهای عمومی — و چون
+            # دادهٔ بازار همیشه از **پروداکشن** خونده می‌شه، کلید API مرتب به
+            # میزبان پروداکشن ارائه می‌شد بدون هیچ نیازی. اون درخواست‌ها خواندنی
+            # بودن پس هیچ عملی ممکن نبود، ولی ارائهٔ بی‌دلیل یک اعتبارنامه سطح
+            # حمله رو بی‌جهت باز می‌گذاره.
+            if endpoint.requires_token:
+                request_headers = self._auth_headers(endpoint.method.value, signed_path, body_str)
+            else:
+                request_headers = {"User-Agent": f"TraderBot/{self.settings.bot_name}"}
             if body_bytes is not None:
                 request_headers["Content-Type"] = "application/json"
             try:

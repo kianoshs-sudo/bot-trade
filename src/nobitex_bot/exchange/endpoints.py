@@ -41,7 +41,13 @@ ORDERS_UPDATE_STATUS = Endpoint(
 )
 ORDERS_CANCEL_OLD = Endpoint(HttpMethod.POST, "/market/orders/cancel-old", "orders_cancel_old", requires_token=True)
 ORDERS_LIST = Endpoint(HttpMethod.GET, "/market/orders/list", "orders_list", requires_token=True)
-APIKEYS_CREATE = Endpoint(HttpMethod.POST, "/apikeys/create", "apikeys_create", requires_token=True)
+
+# ``/apikeys/create`` عمداً تعریف نشده. قبلاً بود و هیچ‌جا صدا زده نمی‌شد: کد
+# مرده‌ای که یک قابلیت خطرناک رو در دسترس می‌گذاشت. یک ربات معامله‌گر هیچ کاری
+# با ساختن کلید API نداره. به همین دلیل هیچ endpoint برداشت/انتقال/کیف‌پولی هم
+# اینجا تعریف نمی‌شه — نبودشون تضمین می‌کنه این کد حتی اگه بخواد هم نمی‌تونه
+# دارایی رو جابه‌جا کنه (تست test_no_api_key_creation_endpoint_exists این رو
+# اجباری نگه می‌داره).
 
 
 def _int_env(name: str, default: int) -> int:
