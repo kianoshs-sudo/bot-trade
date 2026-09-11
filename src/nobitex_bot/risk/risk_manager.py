@@ -76,6 +76,7 @@ class RiskManager:
         market_price: Decimal,
         open_trades_count: int,
         committed_quote: Decimal = Decimal(0),
+        quote_rate: Decimal = Decimal(1),
         now: datetime | None = None,
     ) -> RiskDecision:
         """دروازهٔ اصلی — همهٔ قیدهای فاز ۵ رو به ترتیب چک می‌کنه."""
@@ -125,7 +126,11 @@ class RiskManager:
         if position_size > available_capital:
             position_size = available_capital
 
-        min_order_value = Decimal(min_order_value_for_symbol(signal.symbol))
+        # حداقل ارزش معامله به ارز مقصدِ بازار است (۳ میلیون ریال یا ۱۱ تتر)،
+        # ولی ``position_size`` به واحد سرمایه (ریال) است — پس آستانه باید با
+        # نرخ به همون واحد تبدیل بشه. بدون این، آستانهٔ ۱۱ تتری با یک عدد
+        # ریالی مقایسه می‌شد و عملاً همیشه بی‌اثر بود.
+        min_order_value = Decimal(min_order_value_for_symbol(signal.symbol)) * quote_rate
         if position_size < min_order_value:
             return RiskDecision(
                 False,

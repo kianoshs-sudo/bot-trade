@@ -51,6 +51,7 @@ from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
 from nobitex_bot.exchange.endpoints import (
     RESOLUTION_SECONDS,
+    is_irt_quoted_symbol,
     stats_symbol_to_udf_symbol,
     taker_fee_rate,
 )
@@ -273,6 +274,30 @@ class PaperTradingRunner:
             udf_stats[udf_symbol] = stat
         return udf_stats
 
+    @staticmethod
+    def _quote_rate_in_capital_currency(symbol: str, stats: dict) -> Decimal | None:
+        """چند ریال ارزش یک واحد از ارز مقصدِ این بازار است.
+
+        سرمایهٔ هر track به **ریال** است، ولی بازارهای تتری به **تتر**
+        قیمت‌گذاری می‌شن. ``calculate_position_size`` خودش سالمه (نسبت
+        ``entry/(entry−SL)`` بی‌واحده، پس خروجی به همون واحد سرمایه — ریال —
+        می‌مونه)، ولی تبدیل اون notional ریالی به **تعداد ارز** نیاز به نرخ
+        داره. بدون این، ``amount = size_quote / entry_price`` یک عدد ریالی رو
+        بر قیمت دلاری تقسیم می‌کرد و سفارش‌هایی با اندازهٔ نجومی می‌ساخت —
+        در اسکن واقعی ``ADAUSDT amount=126,828,628`` یعنی ~۲۶ میلیون دلار،
+        با سرمایه‌ای معادل ~۲۳۷ دلار.
+
+        بازار ریالی نرخ ۱ داره (ارز مقصدش خودِ واحد سرمایه‌ست). برای بازار
+        تتری نرخ از ``USDTIRT`` همون پاسخ ``market/stats`` خونده می‌شه؛ اگه
+        نبود ``None`` برمی‌گرده و ورود انجام نمی‌شه — چون بدون نرخ، هر اندازه‌ای
+        حدسی و خطرناکه.
+        """
+        if is_irt_quoted_symbol(symbol):
+            return Decimal(1)
+        usdt_stat = stats.get("USDTIRT")
+        rate = usdt_stat.latest if usdt_stat is not None else None
+        return rate if rate and rate > 0 else None
+
     def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
         now = int(time.time())
         span_seconds = 200 * 3600
@@ -285,6 +310,11 @@ class PaperTradingRunner:
         stats = self._udf_keyed_market_stats()
         market_price = stats[symbol].latest if symbol in stats and stats[symbol].latest else None
         if market_price is None:
+            return False
+
+        quote_rate = self._quote_rate_in_capital_currency(symbol, stats)
+        if quote_rate is None:
+            logger.warning("نرخ تبدیل ارز مقصد %s در دسترس نیست — ورود انجام نشد", symbol)
             return False
 
         signal = track.strategy.generate_entry_signal(df, symbol)
@@ -304,6 +334,7 @@ class PaperTradingRunner:
             market_price,
             len(track.open_positions),
             committed_quote=committed,
+            quote_rate=quote_rate,
         )
         if not decision.approved:
             logger.info("[%s] سیگنال %s رد شد توسط مدیریت ریسک: %s", track.label, symbol, decision.reason)
@@ -317,11 +348,19 @@ class PaperTradingRunner:
                 self.decision_logger.log("approval_rejected", symbol, track.strategy.name, "کاربر تایید نکرد")
             return False
 
-        self._open_position(track, signal, decision.position_size_quote)
+        self._open_position(track, signal, decision.position_size_quote, quote_rate)
         return True
 
-    def _open_position(self, track: StrategyTrack, signal, size_quote: Decimal) -> None:
-        amount = size_quote / signal.entry_price_hint
+    def _open_position(
+        self, track: StrategyTrack, signal, size_quote: Decimal, quote_rate: Decimal = Decimal(1)
+    ) -> None:
+        # ``size_quote`` به واحد سرمایه (ریال) است؛ برای گرفتن *تعداد ارز* باید
+        # اول به ارز مقصدِ همین بازار تبدیل بشه. در بازار ریالی نرخ ۱ است و
+        # چیزی عوض نمی‌شه؛ در بازار تتری بدون این تبدیل، یک مقدار ریالی بر
+        # قیمت دلاری تقسیم می‌شد و اندازهٔ سفارش ~۲۱۱٬۰۰۰ برابر بزرگ‌تر از
+        # سرمایه در می‌اومد.
+        size_in_quote_currency = size_quote / quote_rate
+        amount = size_in_quote_currency / signal.entry_price_hint
 
         self.order_executor.submit_order(signal.symbol, signal.direction, "limit", amount, signal.entry_price_hint)
 

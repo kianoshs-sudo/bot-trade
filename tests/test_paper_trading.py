@@ -782,3 +782,56 @@ def test_entry_error_record_carries_the_real_exception_message(tmp_path):
     assert errors, "رکورد entry_error ثبت نشد"
     assert "HTTP401: API key is invalid." in errors[0]
     storage.close()
+
+
+def _usdt_market_runner(tmp_path, candles, usdt_rate="211000"):
+    """رانری که فرصتش یک بازار تتری است و نرخ USDTIRT هم در stats موجود است —
+    دقیقاً وضعیتی که با یکسان‌سازی واحد حجم، در اسکن واقعی پیش آمد."""
+    from nobitex_bot.data.storage import Storage
+    from nobitex_bot.analysis.scanner import ScanResult
+
+    storage = Storage(tmp_path / "usdt.sqlite")
+    market_data = MagicMock()
+    market_data.get_ohlc_history.return_value = candles
+    price_stat = MagicMock(); price_stat.latest = Decimal("100.68")
+    rate_stat = MagicMock(); rate_stat.latest = Decimal(usdt_rate)
+    market_data.get_all_market_stats.return_value = {"BTCUSDT": price_stat, "USDTIRT": rate_stat}
+
+    scanner = MagicMock()
+    scanner.scan.return_value = [ScanResult(
+        symbol="BTCUSDT", last_price=Decimal("100.68"), volume_dst=Decimal("1000"),
+        atr_pct=0.02, signal_direction="bullish", signal_strength=1.0,
+    )]
+    track = StrategyTrack(
+        strategy=TrendMomentumVolumeStrategy(), resolution="60",
+        capital=Decimal("50000000"),  # ریال
+        risk_manager=RiskManager(RiskConfig(risk_per_trade_pct=Decimal("0.02"))),
+    )
+    order_executor = MagicMock()
+    order_executor.submit_order.return_value = {"status": "ok", "order": {"id": 1}}
+    runner = PaperTradingRunner(
+        settings=make_settings(tmp_path), market_data=market_data, scanner=scanner,
+        tracks=[track], order_executor=order_executor, storage=storage, approval_gate=AlwaysApprove(),
+    )
+    return runner, storage, order_executor, track
+
+
+def test_usdt_market_order_amount_is_converted_from_rial_capital(tmp_path):
+    """``size_quote`` به **ریال** است (نسبت ``entry/(entry-SL)`` بی‌واحده، پس
+    واحدِ سرمایه حفظ می‌شه) ولی ``amount = size_quote / entry_price`` قیمت را
+    به **تتر** می‌گیرد. بدون تبدیل نرخ، سفارش‌هایی با اندازهٔ نجومی ساخته
+    می‌شد — در دادهٔ واقعی ``ADAUSDT amount=126,828,628`` یعنی ۲۶ میلیون دلار
+    با سرمایهٔ ۵۰ میلیون ریال (~۲۳۷ دلار)."""
+    candles = build_trend_series()[:66]
+    runner, storage, order_executor, track = _usdt_market_runner(tmp_path, candles)
+
+    runner.run_once()
+
+    entry_call = order_executor.submit_order.call_args_list[0]
+    amount = entry_call.args[3]
+    price = entry_call.args[4]
+    # ارزش پوزیشن به تتر باید حداکثر معادل سرمایهٔ ریالی باشه (۵۰م ریال ÷ ۲۱۱٬۰۰۰ ≈ ۲۳۷ تتر)
+    notional_usdt = amount * price
+    assert notional_usdt <= Decimal("237"), f"ارزش پوزیشن {notional_usdt} تتر از سرمایه بیشتره"
+    assert notional_usdt > Decimal("1"), "اندازهٔ پوزیشن بی‌معنی کوچک شد"
+    storage.close()
