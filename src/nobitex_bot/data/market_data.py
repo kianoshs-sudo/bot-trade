@@ -69,6 +69,10 @@ class MarketDataService:
             live = self.live_feed.get_candles(symbol, resolution)
             # فقط وقتی سری فید کل بازهٔ درخواستی را پوشش دهد؛ وگرنه اندیکاتور روی تاریخچهٔ کوتاه‌تر حساب می‌شد
             if live and live[0].timestamp <= from_ts + RESOLUTION_SECONDS.get(resolution, 0):
+                if persist and self.storage is not None:
+                    # فقط چند کندل آخر: بقیه موقع backfill ذخیره شده‌اند. نمودار پنل (پروسهٔ جدا)
+                    # و بک‌تست بعدی از دیتابیس می‌خوانند، نه از حافظهٔ بات.
+                    self.storage.upsert_candles(symbol, resolution, live[-3:])
                 return [c for c in live if from_ts <= c.timestamp <= to_ts]
 
         candles = self.client.get_ohlc_history(symbol, resolution, from_ts, to_ts)

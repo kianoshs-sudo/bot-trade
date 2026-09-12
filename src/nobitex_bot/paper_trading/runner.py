@@ -31,12 +31,15 @@ SL/TP بر اساس رفتار واقعی بازار باشن، نه دادهٔ 
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from nobitex_bot.analysis.indicators import (
     MIN_CANDLES_FOR_INDICATORS,
@@ -182,6 +185,8 @@ class PaperTradingRunner:
     # HTTP401 رد شد و نتیجه‌اش این بود که هیچ معامله‌ای — حتی مجازی — ثبت نشد و
     # منحنی سرمایه هیچ‌وقت شکل نگرفت.
     simulate: bool = False
+    # قیمت قابل اجرای نمادهای پوزیشن باز برای پنل (پروسهٔ جدا)؛ هر چک خروج به‌روز می‌شود
+    live_prices_path: object | None = None  # pathlib.Path
     # دیتافریم اندیکاتورهای همین چرخه، به کلید (نماد، تایم‌فریم)؛ None یعنی کندل کافی نبود.
     # سقف ۲۰ درخواست کندل در دقیقه گلوگاه اصلی است و بدون این، هر استراتژی همان کندل‌ها
     # را دوباره می‌گرفت. اول هر چرخه خالی می‌شود تا سیگنال روی کندل چرخهٔ قبل ساخته نشود.
@@ -304,6 +309,7 @@ class PaperTradingRunner:
                         break
 
         self._record_equity_snapshots()
+        self._write_live_prices()
         self._write_status_snapshot_if_configured(time.time() - cycle_start, opportunities)
 
     def check_exits_now(self) -> None:
@@ -314,6 +320,29 @@ class PaperTradingRunner:
                 self._check_exits(track)
             except Exception:
                 logger.exception("[%s] چک خروج بین چرخه‌ها ناموفق بود", track.label)
+        self._write_live_prices()
+
+    def _write_live_prices(self) -> None:
+        """بهترین‌تلاش و اتمیک: پنل نباید فایل نیمه‌نوشته بخواند، و خطای نوشتن نباید چرخه را بکشد."""
+        if self.live_prices_path is None:
+            return
+        try:
+            stats = self._udf_keyed_market_stats()
+            prices = {}
+            for symbol in sorted({s for t in self.tracks for s in t.open_positions}):
+                stat = stats.get(symbol)
+                if stat is None:
+                    continue
+                prices[symbol] = {
+                    key: str(value) if isinstance(value, Decimal) else None
+                    for key, value in (("latest", stat.latest), ("bid", stat.best_buy), ("ask", stat.best_sell))
+                }
+            path = Path(self.live_prices_path)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"updated_at": int(time.time()), "prices": prices}), encoding="utf-8")
+            os.replace(tmp, path)
+        except Exception:
+            logger.exception("نوشتن قیمت‌های زنده برای پنل ناموفق بود")
 
     def _reload_risk_config_if_configured(self) -> None:
         if self.risk_config_path is None:

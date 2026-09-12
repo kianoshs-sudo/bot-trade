@@ -1,148 +1,195 @@
 {% extends "base.html" %}
-{% block title %}وضعیت{% endblock %}
+{% block title %}پنل معاملات کاغذی{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block head %}
+<style>
+  /* رنگ سری‌ها: رنگ = سبک قوانین، نوع خط = جهت (پیوسته فقط خرید، خط‌چین دوطرفه).
+     سه رنگ اول پالت مرجع dataviz، روی سطح #12151d با validate_palette.js (--pairs all) همه PASS. */
+  .viz-root { --series-loose: #3987e5; --series-strict: #d95926; --series-tuned: #199e70;
+              --good: #0ca30c; --critical: #d03b3b; --warn: #fab219; --hair: #232838; }
+  .hero { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 26px; }
+  .hero .label { color: var(--text-muted); font-size: 13px; }
+  .hero .figure { font-size: 48px; font-weight: 700; line-height: 1.15; }
+  .hero .unit { font-size: 16px; color: var(--text-muted); font-weight: 500; margin-right: 8px; }
+  .delta { font-size: 15px; font-weight: 600; direction: ltr; unicode-bidi: isolate; display: inline-block; }
+  .delta.up { color: var(--good); } .delta.down { color: var(--critical); } .delta.flat { color: var(--text-muted); }
+  .tiles { display: flex; flex-wrap: wrap; gap: 10px; }
+  .tile { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 12px; padding: 10px 16px; min-width: 128px; }
+  .tile .l { font-size: 12px; color: var(--text-muted); }
+  .tile .v { font-size: 18px; font-weight: 600; }
+  .pulse { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; }
+  .pulse i { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pulse.good { color: var(--good); } .pulse.warn { color: var(--warn); } .pulse.bad { color: var(--critical); }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-bottom: 26px; }
+  .pcard { margin: 0; cursor: pointer; transition: border-color .15s, transform .15s; }
+  .pcard:hover { border-color: #33405c; }
+  .pcard.selected { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+  .pcard header { display: flex; align-items: center; gap: 10px; font-size: 14.5px; }
+  .pcard header .badge { margin-right: auto; }
+  .key { display: inline-block; width: 22px; border-top: 3px solid var(--c); border-radius: 2px; flex: none; }
+  .key.dashed { border-top-style: dashed; }
+  .pcard .eq { font-size: 25px; font-weight: 700; margin: 10px 0 0; }
+  .pcard .eq small { font-size: 13px; font-weight: 500; color: var(--text-muted); }
+  .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 12px; margin-top: 14px; }
+  .metrics span { display: block; font-size: 11.5px; color: var(--text-muted); }
+  .metrics b { font-size: 14px; font-weight: 600; direction: ltr; unicode-bidi: isolate; display: inline-block; }
+  .spark { display: block; width: 100%; height: 46px; margin-top: 14px; }
+
+  .chart-card { padding: 16px 18px 12px; }
+  .chart-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  .chart-head h2 { margin: 0; font-size: 15px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--text-muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .chart { position: relative; height: 320px; direction: ltr; }
+  .chart.tall { height: 440px; }
+  .tooltip { position: absolute; top: 10px; z-index: 5; display: none; pointer-events: none; direction: rtl; min-width: 190px;
+             background: var(--bg-elevated-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px;
+             font-size: 12.5px; box-shadow: var(--shadow); }
+  .tooltip .row { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+  .tooltip .row b { margin-right: auto; direction: ltr; unicode-bidi: isolate; font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  button.chip { margin: 0; padding: 5px 12px; border-radius: 999px; background: var(--bg-elevated-2); border: 1px solid var(--border);
+                color: var(--text-muted); font-size: 12.5px; font-weight: 500; }
+  button.chip:hover { color: var(--text); background: var(--bg-elevated-2); }
+  button.chip.on { background: var(--accent-bg); color: var(--accent); border-color: rgba(91,140,255,.4); }
+  .chart-note { color: var(--text-faint); font-size: 12px; margin: 8px 0 0; }
+  td .key { width: 14px; margin-left: 7px; vertical-align: middle; }
+  td.reason { max-width: 340px; overflow: hidden; text-overflow: ellipsis; color: var(--text-muted); }
+  td button.link { margin: 0; padding: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13.5px; }
+  td .up { color: var(--good); } td .down { color: var(--critical); }
+  details.system { margin-top: 36px; }
+  details.system > summary { cursor: pointer; font-weight: 600; color: var(--text-muted); list-style: none; }
+  details.system > summary::before { content: '▸ '; }
+  details.system[open] > summary::before { content: '▾ '; }
+  @media (max-width: 640px) { .hero .figure { font-size: 36px; } .metrics { grid-template-columns: repeat(2, 1fr); } }
+</style>
+{% endblock %}
 {% block content %}
-<div class="page-head">
-  <h1>وضعیت زنده</h1>
-  <p>این صفحه نشون می‌ده ربات الان روی هر ترکیب استراتژی/تایم‌فریم چیکار می‌کنه و آخرین تصمیم‌هاش چی بوده.</p>
-</div>
+<div class="viz-root" id="panel">
+  <div class="page-head">
+    <h1>پنل معاملات کاغذی</h1>
+    <p>شش سبد مجازی، هر کدام ۱۰ میلیون تومان، روی قیمت و اردربوک واقعی نوبیتکس. هیچ سفارشی به صرافی نمی‌رود. هر ۱۰ ثانیه به‌روز می‌شود.</p>
+  </div>
 
-{% if not status %}
-<div class="empty-state">
-  <div class="icon">💤</div>
-  هنوز هیچ عکس وضعیتی ثبت نشده — ربات (<code>run_paper_trading.py</code>) هنوز اجرا نشده یا اولین چرخه‌ش تموم نشده.
-</div>
-{% else %}
+  <section class="hero">
+    <div>
+      <div class="label">ارزش کل سبدها</div>
+      <div class="figure"><span id="hero-value">—</span><span class="unit">تومان</span></div>
+      <div class="delta flat" id="hero-delta">—</div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><div class="l">پوزیشن باز</div><div class="v" id="tile-open">—</div></div>
+      <div class="tile"><div class="l">معاملهٔ بسته</div><div class="v" id="tile-closed">—</div></div>
+      <div class="tile"><div class="l">چرخهٔ بات</div><div class="v" id="tile-bot">—</div></div>
+      <div class="tile"><div class="l">قیمت زنده</div><div class="v" id="tile-prices">—</div></div>
+    </div>
+  </section>
 
-<div class="stat-grid">
-  <div class="stat-card">
-    <div class="label">تعداد ترکیب‌های فعال</div>
-    <div class="value num">{{ status.tracks | rejectattr('daily_loss_halted') | list | length }} / {{ status.tracks | length }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">پوزیشن‌های باز</div>
-    <div class="value num">{{ status.tracks | sum(attribute='open_positions') }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">مجموع سرمایهٔ مجازی</div>
-    <div class="value num">{{ total_capital | fnumber }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">آخرین به‌روزرسانی</div>
-    <div class="value num" style="font-size:15px;">{{ status.updated_at | fdatetime }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">مدت چرخهٔ اخیر</div>
-    <div class="value num" style="font-size:15px;">{{ status.cycle_duration_seconds | fduration }}</div>
-  </div>
-</div>
+  <h2 class="section-title">سبدها <span class="count-badge">برای فیلتر جدول‌ها روی هر کارت بزن</span></h2>
+  <div class="cards" id="cards"><div class="empty-state">در حال بارگذاری…</div></div>
 
-<h2 class="section-title">ترکیب‌های استراتژی/تایم‌فریم <span class="count-badge">{{ status.tracks | length }}</span></h2>
-<div class="table-wrap">
-<table>
-  <tr><th>ترکیب</th><th>سرمایهٔ مجازی</th><th>پوزیشن‌های باز</th><th>نمادهای پوزیشن باز</th><th>وضعیت</th></tr>
-  {% for t in status.tracks %}
-  <tr>
-    <td>{{ t.label }}</td>
-    <td class="num">{{ t.capital | fnumber }}</td>
-    <td class="num">{{ t.open_positions }}</td>
-    <td>
-      {% if t.open_position_symbols %}
-        {{ t.open_position_symbols | map('fsymbol') | join('، ') }}
-      {% else %}
-        <span class="muted-cell">—</span>
-      {% endif %}
-    </td>
-    <td>
-      {% if t.daily_loss_halted %}
-      <span class="badge warning">متوقف — حد ضرر روزانه</span>
-      {% else %}
-      <span class="badge success">فعال</span>
-      {% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-</table>
-</div>
-{% endif %}
+  <div class="card chart-card">
+    <div class="chart-head"><h2>مقایسهٔ بازده سبدها (٪)</h2><div class="legend" id="legend"></div></div>
+    <div class="chart" id="equity-chart"><div class="tooltip" id="equity-tip"></div></div>
+    <p class="chart-note">رنگ = سبک قوانین · خط پیوسته = فقط خرید · خط‌چین = خرید و فروش. شامل سود/زیان پوزیشن‌های باز با قیمت لحظه‌ای.</p>
+  </div>
 
-<h2 class="section-title">بازارهای زیر نظر (اسکن اخیر) <span class="count-badge">{{ status.watchlist | length if status else 0 }}</span></h2>
-{% if not status or not status.watchlist %}
-<div class="empty-state">
-  <div class="icon">🔭</div>
-  هنوز نتیجهٔ اسکنی ثبت نشده.
-</div>
-{% else %}
-<div class="table-wrap">
-<table>
-  <tr><th>نماد</th><th>قیمت لحظه‌ای</th><th>جهت سیگنال</th><th>امتیاز ترکیبی</th></tr>
-  {% for w in status.watchlist %}
-  <tr>
-    <td>{{ w.symbol | fsymbol }}</td>
-    <td class="num">{{ w.last_price | fnumber }}</td>
-    <td>
-      {% if w.signal_direction == 'bullish' %}
-      <span class="badge success">صعودی</span>
-      {% elif w.signal_direction == 'bearish' %}
-      <span class="badge danger">نزولی</span>
-      {% else %}
-      <span class="badge muted">خنثی</span>
-      {% endif %}
-    </td>
-    <td class="num">{{ "%.2f" | format(w.composite_score) }}</td>
-  </tr>
-  {% endfor %}
-</table>
-</div>
-{% endif %}
+  <div class="card chart-card">
+    <div class="chart-head">
+      <h2>نمودار زنده <span class="muted" id="live-title"></span></h2>
+      <div class="chips" id="res-chips"></div>
+    </div>
+    <div class="chips" id="symbol-chips" style="margin-bottom:10px"></div>
+    <div class="chart tall" id="live-chart"></div>
+    <p class="chart-note">خط خاکستری = ورود · قرمز خط‌چین = حد ضرر · سبز خط‌چین = حد سود. فلش = ورود معامله، دایره = خروج.</p>
+  </div>
 
-<h2 class="section-title">پوشش داده (برای دنبال‌کردن دقیق سامانه)</h2>
-<div class="stat-grid">
-  <div class="stat-card">
-    <div class="label">کندل نوبیتکس ذخیره‌شده</div>
-    <div class="value num">{{ candle_coverage.total_candles | fnumber }}</div>
+  <h2 class="section-title">پوزیشن‌های باز <span class="count-badge" id="open-count">۰</span></h2>
+  <div class="chips" id="filter-chips" style="margin-bottom:12px"></div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>سبد</th><th>نماد</th><th>جهت</th><th>ورود</th><th>قیمت قابل اجرا</th><th>حد ضرر</th><th>حد سود</th><th>اندازه (تومان)</th><th>سود/زیان باز</th><th>مدت</th><th>دلیل ورود</th></tr></thead>
+      <tbody id="open-body"></tbody>
+    </table>
   </div>
-  <div class="stat-card">
-    <div class="label">نمادهای نوبیتکس با دیتا</div>
-    <div class="value num">{{ candle_coverage.symbol_count | fnumber }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">آخرین کندل نوبیتکس</div>
-    <div class="value num" style="font-size:15px;">{{ candle_coverage.last_ts | fdatetime }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">کندل مرجع کوینبیس ذخیره‌شده</div>
-    <div class="value num">{{ reference_coverage.total_candles | fnumber }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">نمادهای مرجع با دیتا</div>
-    <div class="value num">{{ reference_coverage.symbol_count | fnumber }}</div>
-  </div>
-  <div class="stat-card">
-    <div class="label">آخرین کندل مرجع</div>
-    <div class="value num" style="font-size:15px;">{{ reference_coverage.last_ts | fdatetime }}</div>
+
+  <h2 class="section-title">معامله‌های بسته <span class="count-badge" id="closed-count">۰</span></h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>سبد</th><th>نماد</th><th>جهت</th><th>ورود ← خروج</th><th>سود/زیان (تومان)</th><th>بسته شد</th><th>دلیل خروج</th><th>دلیل ورود</th></tr></thead>
+      <tbody id="closed-body"></tbody>
+    </table>
   </div>
 </div>
 
-<h2 class="section-title">آخرین تصمیم‌ها (علت‌یابی) <span class="count-badge">{{ decisions | length }}</span></h2>
-{% if not decisions %}
-<div class="empty-state">
-  <div class="icon">📭</div>
-  هنوز تصمیمی ثبت نشده.
-</div>
-{% else %}
-<div class="table-wrap">
-<table>
-  <tr><th>زمان</th><th>رویداد</th><th>نماد</th><th>استراتژی</th><th>دلیل</th></tr>
-  {% for d in decisions %}
-  <tr>
-    <td class="muted-cell num">{{ d.ts | fdatetime }}</td>
-    <td><span class="badge {{ d.event_type | event_class }}">{{ d.event_type | event_label }}</span></td>
-    <td>{{ d.symbol | fsymbol }}</td>
-    <td class="muted-cell">{{ d.strategy_name }}</td>
-    <td class="wrap">{{ d.reason }}</td>
-  </tr>
-  {% endfor %}
-</table>
-</div>
-{% endif %}
+<details class="system">
+  <summary>وضعیت سامانه (جزئیات فنی)</summary>
+
+  {% if status %}
+  <h2 class="section-title">حساب‌ها <span class="count-badge">{{ status.tracks | length }}</span></h2>
+  <div class="table-wrap">
+  <table>
+    <tr><th>حساب</th><th>سرمایه (ریال)</th><th>پوزیشن‌های باز</th><th>نمادها</th><th>وضعیت</th></tr>
+    {% for t in status.tracks %}
+    <tr>
+      <td>{{ t.label }}</td>
+      <td class="num">{{ t.capital | fnumber }}</td>
+      <td class="num">{{ t.open_positions }}</td>
+      <td>{% if t.open_position_symbols %}{{ t.open_position_symbols | map('fsymbol') | join('، ') }}{% else %}<span class="muted-cell">—</span>{% endif %}</td>
+      <td>{% if t.daily_loss_halted %}<span class="badge warning">متوقف — حد ضرر روزانه</span>{% else %}<span class="badge success">فعال</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  <p class="muted">آخرین چرخه: {{ status.updated_at | fdatetime }} · مدت: {{ status.cycle_duration_seconds | fduration }}</p>
+  {% endif %}
+
+  <h2 class="section-title">بازارهای زیر نظر (اسکن اخیر) <span class="count-badge">{{ status.watchlist | length if status else 0 }}</span></h2>
+  {% if status and status.watchlist %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>نماد</th><th>قیمت لحظه‌ای</th><th>جهت سیگنال</th><th>امتیاز ترکیبی</th></tr>
+    {% for w in status.watchlist %}
+    <tr>
+      <td>{{ w.symbol | fsymbol }}</td>
+      <td class="num">{{ w.last_price | fnumber }}</td>
+      <td>{% if w.signal_direction == 'bullish' %}<span class="badge success">صعودی</span>{% elif w.signal_direction == 'bearish' %}<span class="badge danger">نزولی</span>{% else %}<span class="badge muted">خنثی</span>{% endif %}</td>
+      <td class="num">{{ "%.2f" | format(w.composite_score) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% else %}
+  <div class="empty-state">هنوز نتیجهٔ اسکنی ثبت نشده.</div>
+  {% endif %}
+
+  <h2 class="section-title">پوشش داده</h2>
+  <div class="stat-grid">
+    <div class="stat-card"><div class="label">کندل ذخیره‌شده</div><div class="value num">{{ candle_coverage.total_candles | fnumber }}</div></div>
+    <div class="stat-card"><div class="label">نمادها با دیتا</div><div class="value num">{{ candle_coverage.symbol_count | fnumber }}</div></div>
+    <div class="stat-card"><div class="label">آخرین کندل</div><div class="value num" style="font-size:15px;">{{ candle_coverage.last_ts | fdatetime }}</div></div>
+  </div>
+
+  <h2 class="section-title">آخرین تصمیم‌ها <span class="count-badge">{{ decisions | length }}</span></h2>
+  {% if decisions %}
+  <div class="table-wrap">
+  <table>
+    <tr><th>زمان</th><th>رویداد</th><th>نماد</th><th>استراتژی</th><th>دلیل</th></tr>
+    {% for d in decisions %}
+    <tr>
+      <td class="muted-cell num">{{ d.ts | fdatetime }}</td>
+      <td><span class="badge {{ d.event_type | event_class }}">{{ d.event_type | event_label }}</span></td>
+      <td>{{ d.symbol | fsymbol }}</td>
+      <td class="muted-cell">{{ d.strategy_name }}</td>
+      <td class="wrap">{{ d.reason }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  </div>
+  {% endif %}
+</details>
+
+<script src="{{ url_for('static', filename='lightweight-charts.standalone.production.js') }}"></script>
+<script src="{{ url_for('static', filename='panel.js') }}"></script>
 {% endblock %}

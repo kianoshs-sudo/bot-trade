@@ -149,6 +149,20 @@ def test_short_is_not_closed_at_take_profit_while_the_ask_is_still_above_it(tmp_
     storage.close()
 
 
+def test_exit_check_publishes_executable_prices_for_the_panel(tmp_path):
+    import json
+
+    runner, storage, track = _runner(tmp_path, _stat(best_buy="99", best_sell="101", latest="100"))
+    runner.live_prices_path = tmp_path / "live_prices.json"
+    _open(runner, storage, track, "buy", entry="100", stop_loss="98", take_profit="104")
+
+    runner.check_exits_now()
+
+    prices = json.loads(runner.live_prices_path.read_text(encoding="utf-8"))["prices"]
+    assert prices == {"BTCIRT": {"latest": "100", "bid": "99", "ask": "101"}}
+    storage.close()
+
+
 def test_exit_check_between_cycles_does_not_scan_the_market(tmp_path):
     runner, storage, track = _runner(tmp_path, _stat(best_buy="105", best_sell="106", latest="105"))
     _open(runner, storage, track, "buy", entry="100", stop_loss="98", take_profit="104")

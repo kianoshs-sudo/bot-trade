@@ -266,6 +266,7 @@ def main() -> None:
         decision_logger=decision_logger,
         status_snapshot_path=status_snapshot_path,
         risk_config_path=risk_config_path,
+        live_prices_path=settings.data_dir / "live_prices.json",
         reference_collector=reference_collector,
         notifier=notifier,
         simulate=args.simulate,

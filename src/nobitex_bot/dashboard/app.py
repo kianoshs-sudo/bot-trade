@@ -20,14 +20,16 @@ import io
 import json
 import math
 import os
+import re
 import secrets as secrets_module
+import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import pyotp
 import qrcode
 import qrcode.image.svg
-from flask import Flask, flash, redirect, render_template, request, session, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from nobitex_bot.config import Settings
@@ -40,7 +42,10 @@ from nobitex_bot.dashboard.auth import (
 )
 from nobitex_bot.dashboard.formatting import register_filters
 from nobitex_bot.data.storage import Storage
+from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS, is_irt_quoted_symbol
 from nobitex_bot.monitoring.decision_log import DecisionLogger
+from nobitex_bot.monitoring.portfolio_stats import downsample, summarize, unrealized_pnl
+from nobitex_bot.paper_trading.portfolios import read_portfolio_definitions
 from nobitex_bot.monitoring.status_snapshot import read_status_snapshot
 from nobitex_bot.risk.config_store import load_risk_config, save_risk_config
 from nobitex_bot.risk.risk_manager import RiskConfig
@@ -102,6 +107,10 @@ def create_app(settings: Settings) -> Flask:
     status_path = settings.data_dir / "status.json"
     decisions_path = settings.data_dir / "decisions.jsonl"
     trades_db_path = settings.data_dir / "paper_trading.sqlite"
+    live_prices_path = settings.data_dir / "live_prices.json"
+    portfolios_path = Path(
+        os.environ.get("NOBITEX_PORTFOLIOS_PATH") or Path(__file__).resolve().parents[3] / "config" / "portfolios.json"
+    )
 
     def current_session() -> dict | None:
         token = session.get("sid")
@@ -268,6 +277,133 @@ def create_app(settings: Settings) -> Flask:
             total_capital=total_capital,
             candle_coverage=candle_coverage,
             reference_coverage=reference_coverage,
+        )
+
+    @app.context_processor
+    def inject_navigation():
+        # قبلاً base.html با session['master_password'] تصمیم می‌گرفت، که دیگر در کوکی نیست
+        data = current_session()
+        return {"nav_visible": data is not None and data.get("stage") == STAGE_AUTHENTICATED}
+
+    def _read_json(path: Path) -> dict | None:
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def _f(value: object) -> float | None:
+        if value is None or value == "":
+            return None
+        return float(value)
+
+    def _trade_row(trade: dict, meta: dict) -> dict:
+        definition = meta.get(trade["portfolio"], {})
+        row = {
+            key: trade.get(key)
+            for key in (
+                "id", "portfolio", "symbol", "strategy_name", "resolution", "direction",
+                "entry_time", "exit_time", "entry_reason", "exit_reason",
+            )
+        }
+        row.update(
+            {key: _f(trade.get(key)) for key in ("entry_price", "exit_price", "size_quote", "fee_paid", "pnl", "stop_loss", "take_profit")}
+        )
+        row.update(title=definition.get("title", trade["portfolio"]), profile=definition.get("profile"),
+                   portfolio_direction=definition.get("direction"))
+        return row
+
+    def _definitions() -> list[dict]:
+        return read_portfolio_definitions(portfolios_path) if portfolios_path.exists() else []
+
+    @app.route("/api/overview")
+    @login_required
+    def api_overview():
+        """دادهٔ پنل: فقط معامله‌های سبدها (ستون portfolio پر)، نه آزمایش‌های قبلی."""
+        definitions = _definitions()
+        meta = {d["label"]: d for d in definitions}
+        prices_doc = _read_json(live_prices_path) or {}
+        prices = prices_doc.get("prices") or {}
+        status = read_status_snapshot(status_path)
+        storage = Storage(trades_db_path)
+        try:
+            open_trades = [t for t in storage.get_open_paper_trades() if t.get("portfolio")]
+            closed_trades = [t for t in storage.get_closed_paper_trades() if t.get("portfolio")]
+            snapshots = storage.get_equity_snapshots()
+        finally:
+            storage.close()
+
+        portfolios = []
+        for definition in definitions:
+            label, initial = definition["label"], definition["initial_capital"]
+            own_snapshots = [s for s in snapshots if s["portfolio"] == label]
+            summary = summarize(
+                initial,
+                [t for t in closed_trades if t["portfolio"] == label],
+                [t for t in open_trades if t["portfolio"] == label],
+                own_snapshots,
+                prices,
+            )
+            curve = downsample([[s["ts"], float((Decimal(s["equity"]) - initial) / initial * 100)] for s in own_snapshots])
+            portfolios.append(
+                {
+                    **{k: definition[k] for k in ("label", "name", "version", "profile", "direction", "title", "description", "sources")},
+                    **{k: float(v) if isinstance(v, Decimal) else v for k, v in summary.items()},
+                    "curve": curve,
+                }
+            )
+
+        open_rows = []
+        for trade in sorted(open_trades, key=lambda t: t["entry_time"], reverse=True):
+            row = _trade_row(trade, meta)
+            price = prices.get(trade["symbol"]) or {}
+            unrealized = unrealized_pnl(trade, price)
+            row.update(
+                unrealized=float(unrealized) if unrealized is not None else None,
+                price=_f(price.get("bid" if trade["direction"] == "buy" else "ask") or price.get("latest")),
+            )
+            open_rows.append(row)
+        closed_rows = [
+            _trade_row(t, meta) for t in sorted(closed_trades, key=lambda t: t["exit_time"] or 0, reverse=True)[:200]
+        ]
+
+        return jsonify(
+            {
+                "now": int(time.time()),
+                "status_updated_at": status.get("updated_at") if status else None,
+                "cycle_duration_seconds": status.get("cycle_duration_seconds") if status else None,
+                "prices_updated_at": prices_doc.get("updated_at"),
+                "prices": prices,
+                "portfolios": portfolios,
+                "open_positions": open_rows,
+                "closed_trades": closed_rows,
+            }
+        )
+
+    @app.route("/api/candles")
+    @login_required
+    def api_candles():
+        symbol = (request.args.get("symbol") or "").upper()
+        resolution = request.args.get("resolution") or "15"
+        if not re.fullmatch(r"[A-Z0-9_]{2,24}", symbol) or resolution not in RESOLUTION_SECONDS:
+            return jsonify({"error": "نماد یا تایم‌فریم نامعتبر"}), 400
+        meta = {d["label"]: d for d in _definitions()}
+        now = int(time.time())
+        storage = Storage(trades_db_path)
+        try:
+            candles = storage.get_candles(symbol, resolution, now - 300 * RESOLUTION_SECONDS[resolution], now)
+            open_trades = [t for t in storage.get_open_paper_trades(symbol) if t.get("portfolio")]
+            closed_trades = [t for t in storage.get_closed_paper_trades() if t.get("portfolio") and t["symbol"] == symbol]
+        finally:
+            storage.close()
+        return jsonify(
+            {
+                "symbol": symbol,
+                "resolution": resolution,
+                "quote": "IRT" if is_irt_quoted_symbol(symbol) else "USDT",
+                "candles": [[c.timestamp, float(c.open), float(c.high), float(c.low), float(c.close)] for c in candles],
+                "open": [_trade_row(t, meta) for t in open_trades],
+                "closed": [_trade_row(t, meta) for t in closed_trades[-100:]],
+            }
         )
 
     @app.route("/trades")

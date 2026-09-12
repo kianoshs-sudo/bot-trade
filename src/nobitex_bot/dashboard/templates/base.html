@@ -181,25 +181,29 @@
       padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 14px;
     }
 
+    main.wide { max-width: 1440px; }
+    .muted { color: var(--text-muted); }
+
     @media (max-width: 640px) {
       main { padding: 20px 14px 48px; }
       nav { padding: 0 14px; gap: 0; }
       .brand span.brand-text { display: none; }
     }
   </style>
+  {% block head %}{% endblock %}
 </head>
 <body>
-  {% if session.get('master_password') %}
+  {% if nav_visible %}
   <nav>
     <span class="brand"><span class="brand-dot"></span><span class="brand-text">بات نوبیتکس</span></span>
-    <a class="navlink {{ 'active' if request.path == url_for('index') }}" href="{{ url_for('index') }}">وضعیت</a>
+    <a class="navlink {{ 'active' if request.path == url_for('index') }}" href="{{ url_for('index') }}">پنل</a>
     <a class="navlink {{ 'active' if request.path == url_for('trades') }}" href="{{ url_for('trades') }}">معاملات</a>
     <a class="navlink {{ 'active' if request.path == url_for('settings_view') }}" href="{{ url_for('settings_view') }}">تنظیمات</a>
     <span class="spacer"></span>
     <a class="logout" href="{{ url_for('logout') }}">خروج ⏻</a>
   </nav>
   {% endif %}
-  <main>
+  <main class="{% block main_class %}{% endblock %}">
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}{% for category, m in messages %}<div class="flash {{ category }}">{{ m }}</div>{% endfor %}{% endif %}
     {% endwith %}

@@ -126,6 +126,23 @@ def test_service_backfills_once_then_serves_candles_from_the_feed():
     assert [c.timestamp for c in second] == [900, 1200]
 
 
+def test_candles_served_from_the_feed_are_still_saved_for_the_panel_chart(tmp_path):
+    from nobitex_bot.data.storage import Storage
+
+    storage = Storage(tmp_path / "feed.sqlite")
+    feed = LiveFeed(clock=Clock())
+    client = MagicMock()
+    client.get_ohlc_history.return_value = [_candle(600, "1000"), _candle(900, "1000")]
+    service = MarketDataService(client=client, storage=storage, live_feed=feed)
+
+    service.get_ohlc_history("BTCIRT", "5", 600, 1000)
+    feed.handle_message(_push("public:candle-BTCIRT-5", _ws_candle(1200, 100.0)))
+    service.get_ohlc_history("BTCIRT", "5", 700, 1300)
+
+    assert [c.timestamp for c in storage.get_candles("BTCIRT", "5")] == [600, 900, 1200]
+    storage.close()
+
+
 def test_service_goes_back_to_rest_when_the_feed_has_no_fresh_data():
     clock = Clock()
     feed = LiveFeed(clock=clock, stale_after_seconds=45)

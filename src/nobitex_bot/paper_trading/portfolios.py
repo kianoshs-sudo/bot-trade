@@ -25,6 +25,33 @@ from nobitex_bot.strategies.registry import get_strategy
 # مقدار = long_only
 DIRECTIONS = {"long": True, "both": False}
 
+STYLE_LABELS = {"loose": "راحت", "strict": "سختگیرانه", "tuned": "تنظیم‌شده با گذشته"}
+DIRECTION_LABELS = {"long": "فقط خرید", "both": "خرید و فروش"}
+
+
+def read_portfolio_definitions(path: Path | str) -> list[dict]:
+    """فقط خواندن تعریف‌ها برای نمایش در پنل — بدون ساختن استراتژی یا مدیریت ریسک."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    profiles = data.get("profiles", {})
+    definitions = []
+    for entry in data.get("portfolios", []):
+        profile = profiles.get(entry["profile"], {})
+        definitions.append(
+            {
+                "label": f"{entry['name']}@v{int(entry['version'])}",
+                "name": entry["name"],
+                "version": int(entry["version"]),
+                "profile": entry["profile"],
+                "direction": entry["direction"],
+                "title": f"{STYLE_LABELS.get(entry['profile'], entry['profile'])} · "
+                f"{DIRECTION_LABELS.get(entry['direction'], entry['direction'])}",
+                "initial_capital": Decimal(str(entry["initial_capital_rial"])),
+                "description": profile.get("description", ""),
+                "sources": [f"{s['strategy']}@{s['resolution']}" for s in profile.get("sources", [])],
+            }
+        )
+    return definitions
+
 
 def _risk_config(data: dict) -> RiskConfig:
     defaults = RiskConfig()
