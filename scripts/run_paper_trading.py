@@ -145,7 +145,10 @@ def main() -> None:
         token = _get_secret("nobitex_api_token", "NOBITEX_API_TOKEN")
         if token:
             settings = replace(settings, api_token=token)
-        if not settings.api_token:
+        # در --simulate هیچ درخواستی به endpoint خصوصی نمی‌رود (دادهٔ بازار عمومی است)،
+        # پس کلید لازم نیست. قبلاً این چک بی‌قید بود و سرور مجبور بود کلید حساب
+        # واقعی را فقط برای رد شدن از همین خط نگه دارد.
+        if not settings.api_token and not args.simulate:
             logger.error(
                 "هیچ‌کدوم از NOBITEX_API_KEY+NOBITEX_API_SECRET یا NOBITEX_API_TOKEN تنظیم نشده — "
                 "یا در .env/GitHub Secret بذارشون، یا از داشبورد (صفحهٔ تنظیمات) ذخیره کن و "

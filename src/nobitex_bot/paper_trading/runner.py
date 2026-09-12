@@ -132,6 +132,10 @@ class PaperTradingRunner:
     # HTTP401 رد شد و نتیجه‌اش این بود که هیچ معامله‌ای — حتی مجازی — ثبت نشد و
     # منحنی سرمایه هیچ‌وقت شکل نگرفت.
     simulate: bool = False
+    # کندل‌های گرفته‌شده در همین چرخه، به کلید (نماد، تایم‌فریم). سقف ۲۰ درخواست کندل
+    # در دقیقه گلوگاه اصلی است و بدون این، هر استراتژی همان کندل‌ها را دوباره می‌گرفت.
+    # اول هر چرخه خالی می‌شود تا سیگنال هیچ‌وقت روی کندل چرخهٔ قبل ساخته نشود.
+    _cycle_candles: dict = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -196,6 +200,7 @@ class PaperTradingRunner:
 
     def run_once(self) -> None:
         cycle_start = time.time()
+        self._cycle_candles.clear()
         self._reload_risk_config_if_configured()
 
         for track in self.tracks:
@@ -320,7 +325,11 @@ class PaperTradingRunner:
     def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
         now = int(time.time())
         span_seconds = 200 * 3600
-        candles = self.market_data.get_ohlc_history(symbol, track.resolution, now - span_seconds, now)
+        cache_key = (symbol, track.resolution)
+        candles = self._cycle_candles.get(cache_key)
+        if candles is None:
+            candles = self.market_data.get_ohlc_history(symbol, track.resolution, now - span_seconds, now)
+            self._cycle_candles[cache_key] = candles
         candles = drop_unclosed_last_candle(candles, RESOLUTION_SECONDS[track.resolution], now)
         if len(candles) < MIN_CANDLES_FOR_INDICATORS:
             return False

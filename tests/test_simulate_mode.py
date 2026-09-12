@@ -66,6 +66,29 @@ def test_without_simulate_a_failing_exchange_still_blocks_everything(tmp_path):
     storage.close()
 
 
+def test_tracks_on_the_same_resolution_share_one_candle_fetch_per_cycle(tmp_path):
+    """سقف ۲۰ درخواست کندل در دقیقه گلوگاه اصلی است: وقتی هر استراتژی کندل همان
+    نماد و همان تایم‌فریم را جدا بگیرد، ۳ استراتژی × ۴۰ نماد یعنی ۱۲۰ درخواست
+    برای داده‌ای که فقط ۴۰ بار لازم است. در چرخهٔ بعد باید دوباره گرفته شود،
+    وگرنه سیگنال روی کندل کهنه ساخته می‌شود."""
+    runner, storage, _, track = _runner(tmp_path, simulate=True)
+    runner.tracks.append(
+        StrategyTrack(
+            strategy=TrendMomentumVolumeStrategy(), resolution="60",
+            capital=Decimal("50000000"), risk_manager=RiskManager(RiskConfig()),
+        )
+    )
+
+    runner.run_once()
+    assert runner.market_data.get_ohlc_history.call_count == 1
+
+    for t in runner.tracks:
+        t.open_positions.clear()
+    runner.run_once()
+    assert runner.market_data.get_ohlc_history.call_count == 2
+    storage.close()
+
+
 def test_simulated_trade_closes_and_moves_capital(tmp_path):
     """منحنی سرمایه فقط وقتی معنا دارد که معامله‌ها بسته شوند و PnL روی سرمایه
     اعمال شود."""
