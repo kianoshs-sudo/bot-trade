@@ -14,3 +14,9 @@ data/status_command_offset.txt
 *.log
 .pytest_cache/
 .mypy_cache/
+
+# یادداشت‌های عملیاتی سرور — IP و جزئیات نصب نباید در مخزن عمومی باشن
+ops/
+
+# تنظیمات ادیتور، مخصوص همین دستگاه
+.vscode/
