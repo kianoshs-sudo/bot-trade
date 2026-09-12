@@ -88,6 +88,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument(
+        "--exit-check-seconds", type=float, default=10.0,
+        help="بین دو چرخه، هر چند ثانیه فقط برخورد SL/TP چک شود (بدون اسکن)",
+    )
+    parser.add_argument(
         "--initial-capital", type=float, default=50_000_000,
         help="سرمایهٔ مجازی هر ترکیب استراتژی×تایم‌فریم — چون پول واقعی نیست، عمداً بالاتر از یه حساب واقعی "
         "کوچیک نگه داشته شده: با ۱۰ میلیون پیش‌فرض قبلی، هر سیگنالی که فاصلهٔ SL بیشتر از ~۶.۷٪ داشت "
@@ -292,7 +296,11 @@ def main() -> None:
     try:
         while True:
             runner.run_once()
-            time.sleep(args.interval_minutes * 60)
+            # بین دو چرخه فقط خروج چک می‌شود، تا برخورد SL/TP با تأخیر یک چرخهٔ کامل ثبت نشود
+            deadline = time.time() + args.interval_minutes * 60
+            while (remaining := deadline - time.time()) > 0:
+                time.sleep(min(args.exit_check_seconds, remaining))
+                runner.check_exits_now()
     except KeyboardInterrupt:
         logger.info("متوقف شد توسط کاربر (Ctrl+C)")
     finally:

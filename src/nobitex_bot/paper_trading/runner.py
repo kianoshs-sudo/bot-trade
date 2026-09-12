@@ -80,6 +80,29 @@ def _opposite(direction: str) -> str:
     return "sell" if direction == "buy" else "buy"
 
 
+def _positive_decimal(value: object) -> Decimal | None:
+    return value if isinstance(value, Decimal) and value > 0 else None
+
+
+def _walk_book(levels: list, amount: Decimal) -> Decimal | None:
+    """میانگین قیمت پر شدن ``amount`` واحد ارز پایه با مصرف ترتیبی سطوح دفتر
+    (asks صعودی برای خرید، bids نزولی برای فروش). ``None`` اگر عمق کافی نباشد."""
+    if amount <= 0:
+        return None
+    remaining = amount
+    cost = Decimal(0)
+    for level in levels:
+        price, qty = _positive_decimal(level.price), _positive_decimal(level.amount)
+        if price is None or qty is None:
+            continue
+        take = min(remaining, qty)
+        cost += take * price
+        remaining -= take
+        if remaining <= 0:
+            return cost / amount
+    return None
+
+
 @dataclass
 class OpenPosition:
     trade_id: int
@@ -283,6 +306,15 @@ class PaperTradingRunner:
         self._record_equity_snapshots()
         self._write_status_snapshot_if_configured(time.time() - cycle_start, opportunities)
 
+    def check_exits_now(self) -> None:
+        """فقط برخورد SL/TP، بدون اسکن و کندل — برای فاصلهٔ بین دو چرخه، تا خروج با
+        تأخیر یک چرخهٔ کامل ثبت نشود."""
+        for track in self.tracks:
+            try:
+                self._check_exits(track)
+            except Exception:
+                logger.exception("[%s] چک خروج بین چرخه‌ها ناموفق بود", track.label)
+
     def _reload_risk_config_if_configured(self) -> None:
         if self.risk_config_path is None:
             return
@@ -461,8 +493,7 @@ class PaperTradingRunner:
                 self.decision_logger.log("approval_rejected", symbol, source.strategy.name, "کاربر تایید نکرد", **extra)
             return False
 
-        self._open_position(track, signal, decision.position_size_quote, quote_rate, source=source)
-        return True
+        return self._open_position(track, signal, decision.position_size_quote, quote_rate, source=source)
 
     def _notify(self, text: str) -> None:
         """بهترین‌تلاش: شکست در ارسال اعلان هرگز نباید چرخهٔ معامله را بشکند."""
@@ -476,7 +507,7 @@ class PaperTradingRunner:
     def _open_position(
         self, track: StrategyTrack, signal, size_quote: Decimal, quote_rate: Decimal = Decimal(1),
         source: SignalSource | None = None,
-    ) -> None:
+    ) -> bool:
         source = source or track.sources[0]
         # ``size_quote`` به واحد سرمایه (ریال) است؛ برای گرفتن *تعداد ارز* باید
         # اول به ارز مقصدِ همین بازار تبدیل بشه. در بازار ریالی نرخ ۱ است و
@@ -485,6 +516,34 @@ class PaperTradingRunner:
         # سرمایه در می‌اومد.
         size_in_quote_currency = size_quote / quote_rate
         amount = size_in_quote_currency / signal.entry_price_hint
+
+        # در شبیه‌سازی، قیمت ورود همان چیزی است که دفتر سفارش واقعاً می‌داد، نه بستهٔ کندل
+        entry_price = signal.entry_price_hint
+        fill_source = "قیمت کندل"
+        if self.simulate:
+            fill, fill_source_name = self._simulated_fill_price(
+                signal.symbol, signal.direction, amount, self._udf_keyed_market_stats()
+            )
+            if fill is not None:
+                entry_price, fill_source = fill, fill_source_name
+            if signal.direction == "buy":
+                outside_levels = entry_price >= signal.take_profit or entry_price <= signal.stop_loss
+            else:
+                outside_levels = entry_price <= signal.take_profit or entry_price >= signal.stop_loss
+            if outside_levels:
+                logger.info("[%s] پر شدن واقعی %s بیرون بازهٔ SL/TP بود — ثبت نشد", track.label, signal.symbol)
+                if self.decision_logger is not None:
+                    self.decision_logger.log(
+                        "fill_rejected", signal.symbol, source.strategy.name,
+                        f"قیمت پر شدن واقعی ({entry_price}) از همان اول بیرون بازهٔ SL/TP بود — معامله ثبت نشد",
+                        details={
+                            "signal_price": str(signal.entry_price_hint),
+                            "fill_price": str(entry_price),
+                            "fill_source": fill_source,
+                            "portfolio": track.portfolio,
+                        },
+                    )
+                return False
 
         # کد پیوند از همین client_order_id مشتق می‌شه، پس پیام نتیجه هم به
         # سیگنالش وصله و هم در جدول order_intents قابل ردیابیه.
@@ -520,7 +579,7 @@ class PaperTradingRunner:
 
         trade_id = self.storage.open_paper_trade(
             signal.symbol, source.strategy.name, source.resolution, signal.direction, int(time.time()),
-            signal.entry_price_hint, size_quote, signal.reason,
+            entry_price, size_quote, signal.reason,
             stop_loss=signal.stop_loss, take_profit=signal.take_profit,
             exit_client_order_id=exit_client_order_id, portfolio=track.portfolio,
         )
@@ -529,7 +588,7 @@ class PaperTradingRunner:
             symbol=signal.symbol,
             strategy_name=source.strategy.name,
             direction=signal.direction,
-            entry_price=signal.entry_price_hint,
+            entry_price=entry_price,
             stop_loss=signal.stop_loss,
             take_profit=signal.take_profit,
             size_quote=size_quote,
@@ -540,7 +599,9 @@ class PaperTradingRunner:
             self.decision_logger.log(
                 "position_opened", signal.symbol, source.strategy.name, signal.reason,
                 details={
-                    "entry_price": str(signal.entry_price_hint),
+                    "entry_price": str(entry_price),
+                    "signal_price": str(signal.entry_price_hint),
+                    "fill_source": fill_source,
                     "stop_loss": str(signal.stop_loss),
                     "take_profit": str(signal.take_profit),
                     "simulated": self.simulate,
@@ -548,6 +609,7 @@ class PaperTradingRunner:
                     "resolution": source.resolution,
                 },
             )
+        return True
 
     def _submit_exit_order(self, signal, amount: Decimal) -> str:
         # سفارش OCO خروج: price = هدف سود (take_profit)، stopPrice = محل فعال‌شدن حد ضرر،
@@ -575,6 +637,10 @@ class PaperTradingRunner:
     def _check_exits(self, track: StrategyTrack) -> None:
         stats = self._udf_keyed_market_stats()
         for symbol, position in list(track.open_positions.items()):
+            if self.simulate:
+                self._check_simulated_exit(track, position, stats)
+                continue
+
             current_price = stats.get(symbol).latest if symbol in stats else None
 
             # اول از خودِ صرافی می‌پرسیم سفارش OCO خروج واقعاً اجرا شده یا نه —
@@ -599,6 +665,57 @@ class PaperTradingRunner:
             exit_price = position.stop_loss if hit_sl else position.take_profit
             exit_reason = "برخورد Stop Loss (OCO)" if hit_sl else "برخورد Take Profit (OCO)"
             self._close_position(track, position, exit_price, exit_reason)
+
+    def _simulated_fill_price(
+        self, symbol: str, side: str, amount: Decimal, stats: dict
+    ) -> tuple[Decimal | None, str]:
+        """قیمت پر شدن سفارش بازار: ``side='buy'`` از asks می‌خرد، ``'sell'`` به bids
+        می‌فروشد. اول عمق دفتر، بعد بهترین قیمت همان سمت از آمار بازار."""
+        try:
+            book = self.market_data.get_orderbook(symbol)
+            vwap = _walk_book(list(book.asks if side == "buy" else book.bids), amount)
+            if vwap is not None:
+                return vwap, "اردربوک"
+        except Exception as exc:
+            logger.warning("اردربوک %s در دسترس نبود (%s) — بهترین قیمت آمار بازار جایگزین شد", symbol, exc)
+        stat = stats.get(symbol)
+        best = None
+        if stat is not None:
+            best = _positive_decimal(stat.best_sell if side == "buy" else stat.best_buy)
+        return (best, "بهترین قیمت") if best is not None else (None, "")
+
+    def _check_simulated_exit(self, track: StrategyTrack, position: OpenPosition, stats: dict) -> None:
+        """برخورد با قیمت قابل اجرا سنجیده می‌شود، نه آخرین معامله: پوزیشن خرید با
+        فروش به بهترین bid بسته می‌شود و پوزیشن فروش با خرید از بهترین ask.
+        حد ضرر سفارش بازار است و در قیمتی که دفتر واقعاً می‌دهد پر می‌شود — اگر
+        قیمت از SL پریده باشد، بدتر از SL. حد سود سفارش limit است و دقیقاً روی TP."""
+        stat = stats.get(position.symbol)
+        if stat is None:
+            return
+        exit_side = _opposite(position.direction)
+        executable = _positive_decimal(stat.best_buy if exit_side == "sell" else stat.best_sell)
+        if executable is None:
+            executable = _positive_decimal(stat.latest)
+        if executable is None:
+            return
+
+        if position.direction == "buy":
+            hit_sl = executable <= position.stop_loss
+            hit_tp = executable >= position.take_profit
+        else:
+            hit_sl = executable >= position.stop_loss
+            hit_tp = executable <= position.take_profit
+
+        if hit_sl:
+            quote_rate = self._quote_rate_in_capital_currency(position.symbol, stats) or Decimal(1)
+            amount = position.size_quote / quote_rate / position.entry_price
+            fill, fill_source = self._simulated_fill_price(position.symbol, exit_side, amount, stats)
+            self._close_position(
+                track, position, fill or executable,
+                f"برخورد Stop Loss — پر شده با {fill_source or 'بهترین قیمت'} (SL={position.stop_loss})",
+            )
+        elif hit_tp:
+            self._close_position(track, position, position.take_profit, "برخورد Take Profit — سفارش limit روی TP")
 
     def _exit_order_filled_on_exchange(self, position: OpenPosition) -> bool:
         """⚠️ فرمت دقیق status سفارش OCO نوبیتکس روی Testnet واقعی هنوز
