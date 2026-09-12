@@ -28,6 +28,7 @@ import pyotp
 import qrcode
 import qrcode.image.svg
 from flask import Flask, flash, redirect, render_template, request, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from nobitex_bot.config import Settings
 from nobitex_bot.dashboard.auth import (
@@ -83,6 +84,13 @@ def create_app(settings: Settings) -> Flask:
         SESSION_COOKIE_SAMESITE="Lax",  # محافظت در برابر CSRF از سایت دیگه
         SESSION_COOKIE_SECURE=os.environ.get("NOBITEX_DASHBOARD_HTTPS", "").lower() in {"1", "true", "yes"},
     )
+    if os.environ.get("NOBITEX_DASHBOARD_BEHIND_PROXY", "").lower() in {"1", "true", "yes"}:
+        # پشت nginx، remote_addr برای همهٔ درخواست‌ها 127.0.0.1 می‌شه و شمارش
+        # تلاش‌های ناموفق بی‌معنی — همه توی یک سطل می‌ریزن و یک مهاجم می‌تونه
+        # صاحب داشبورد رو هم بیرون نگه داره. x_for=1 یعنی فقط به یک لایه
+        # پروکسی اعتماد کن؛ این فقط وقتی درسته که nginx مستقیم جلوی اپ باشه.
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
     register_filters(app)
 
     dashboard_user = os.environ.get("NOBITEX_DASHBOARD_USER", "kianosh")

@@ -343,6 +343,58 @@ def test_account_locks_after_repeated_failures(client):
     assert "قفل".encode() in response.data
 
 
+def _proxied_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOBITEX_DASHBOARD_USER", "kianosh")
+    monkeypatch.setenv("NOBITEX_FLASK_SECRET_KEY", "test-key-not-random")
+    monkeypatch.setenv("NOBITEX_DASHBOARD_BEHIND_PROXY", "1")
+    settings = Settings(
+        env="testnet",
+        api_base_url="https://x",
+        testnet_base_url="https://y",
+        api_token="",
+        data_dir=tmp_path,
+        log_level="INFO",
+    )
+    app = create_app(settings)
+    app.config.update(TESTING=True)
+    client = app.test_client()
+    # بدون ثبت‌نام اولیه، هر رمزی «درست» حساب می‌شه چون همون لحظه رمز اصلی
+    # رو می‌سازه — اون‌وقت هیچ تلاش ناموفقی شمرده نمی‌شه.
+    enrol(client)
+    client.get("/logout")
+    return client
+
+
+def _fail_login_from(client, address):
+    return client.post(
+        "/login",
+        data={"username": "kianosh", "password": "wrong"},
+        headers={"X-Forwarded-For": address},
+    )
+
+
+def test_behind_a_proxy_each_forwarded_address_gets_its_own_budget(tmp_path, monkeypatch):
+    """بدون این، nginx همهٔ درخواست‌ها رو 127.0.0.1 نشون می‌ده و یک مهاجم
+    می‌تونه صاحب داشبورد رو هم بیرون نگه داره."""
+    client = _proxied_client(tmp_path, monkeypatch)
+    for _ in range(5):
+        _fail_login_from(client, "10.0.0.1")
+
+    response = _fail_login_from(client, "10.0.0.2")
+
+    assert "قفل".encode() not in response.data
+
+
+def test_behind_a_proxy_a_single_address_still_gets_locked(tmp_path, monkeypatch):
+    client = _proxied_client(tmp_path, monkeypatch)
+    for _ in range(5):
+        _fail_login_from(client, "10.0.0.1")
+
+    response = _fail_login_from(client, "10.0.0.1")
+
+    assert "قفل".encode() in response.data
+
+
 def test_setup_page_renders_a_scannable_qr_code(client):
     """بدون بارکد، کاربر باید کلید ۳۲ کاراکتری رو دستی تایپ کنه."""
     client.post("/login", data={"username": "kianosh", "password": "pw"})
