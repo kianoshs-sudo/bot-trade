@@ -19,6 +19,7 @@ def save_risk_config(path: Path, config: RiskConfig) -> None:
         "max_daily_loss_pct": str(config.max_daily_loss_pct),
         "max_concurrent_trades": config.max_concurrent_trades,
         "max_price_deviation": str(config.max_price_deviation),
+        "max_position_pct": None if config.max_position_pct is None else str(config.max_position_pct),
     }
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -33,4 +34,6 @@ def load_risk_config(path: Path) -> RiskConfig:
         max_daily_loss_pct=Decimal(data["max_daily_loss_pct"]),
         max_concurrent_trades=int(data["max_concurrent_trades"]),
         max_price_deviation=Decimal(data["max_price_deviation"]),
+        # فایل‌های ذخیره‌شده قبل از این فیلد آن را ندارند
+        max_position_pct=None if data.get("max_position_pct") is None else Decimal(data["max_position_pct"]),
     )

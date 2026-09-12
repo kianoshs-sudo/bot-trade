@@ -51,9 +51,19 @@ VOLUME_CONFIRM_MULTIPLIER = 1.5  # حجم باید حداقل ۱.۵ برابر �
 
 class BreakoutATRStrategy(Strategy):
     name = "breakout_atr"
+    default_params = {
+        "channel_period": CHANNEL_PERIOD,
+        "volume_ma_period": VOLUME_MA_PERIOD,
+        "atr_stop": ATR_STOP_MULTIPLIER,
+        "atr_take_profit": ATR_TAKE_PROFIT_MULTIPLIER,
+        "confirm_atr": float(BREAKOUT_CONFIRM_ATR_MULTIPLIER),  # ۰ یعنی هر عبوری از مرز کانال
+        "volume_multiplier": VOLUME_CONFIRM_MULTIPLIER,  # ۰ یعنی فیلتر حجم عملاً خاموش
+    }
 
     def generate_entry_signal(self, df: pd.DataFrame, symbol: str) -> TradeSignal | None:
-        if len(df) < max(self.min_candles, CHANNEL_PERIOD + 1):
+        p = self.params
+        channel_period = p["channel_period"]
+        if len(df) < max(self.min_candles, channel_period + 1):
             return None
 
         curr = df.iloc[-1]
@@ -62,11 +72,11 @@ class BreakoutATRStrategy(Strategy):
 
         # کانال بر اساس N کندل *قبل* از کندل فعلی تا breakout واقعی تشخیص داده بشه
         prior = df.iloc[:-1]
-        channel_high = prior["high"].tail(CHANNEL_PERIOD).max()
-        channel_low = prior["low"].tail(CHANNEL_PERIOD).min()
-        volume_ma = df["volume"].rolling(VOLUME_MA_PERIOD).mean().iloc[-1]
-        volume_confirmed = curr["volume"] > volume_ma * VOLUME_CONFIRM_MULTIPLIER
-        breakout_buffer = curr["ATRr_14"] * float(BREAKOUT_CONFIRM_ATR_MULTIPLIER)
+        channel_high = prior["high"].tail(channel_period).max()
+        channel_low = prior["low"].tail(channel_period).min()
+        volume_ma = df["volume"].rolling(p["volume_ma_period"]).mean().iloc[-1]
+        volume_confirmed = curr["volume"] > volume_ma * p["volume_multiplier"]
+        breakout_buffer = curr["ATRr_14"] * p["confirm_atr"]
 
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
@@ -77,12 +87,12 @@ class BreakoutATRStrategy(Strategy):
                 symbol=symbol,
                 direction="sell",
                 entry_price_hint=close,
-                stop_loss=close + atr * ATR_STOP_MULTIPLIER,
-                take_profit=close - atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                stop_loss=close + atr * p["atr_stop"],
+                take_profit=close - atr * p["atr_take_profit"],
                 reason=(
-                    f"Fade شکست قاطع سقف کانال {CHANNEL_PERIOD} کندل (channel_high={channel_high:.4g}، "
+                    f"Fade شکست قاطع سقف کانال {channel_period} کندل (channel_high={channel_high:.4g}، "
                     f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
-                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
+                    f"≥ {p['volume_multiplier']}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
                 ),
                 strategy_name=self.name,
                 native_order_hint="oco",
@@ -94,12 +104,12 @@ class BreakoutATRStrategy(Strategy):
                 symbol=symbol,
                 direction="buy",
                 entry_price_hint=close,
-                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
-                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                stop_loss=close - atr * p["atr_stop"],
+                take_profit=close + atr * p["atr_take_profit"],
                 reason=(
-                    f"Fade شکست قاطع کف کانال {CHANNEL_PERIOD} کندل (channel_low={channel_low:.4g}، "
+                    f"Fade شکست قاطع کف کانال {channel_period} کندل (channel_low={channel_low:.4g}، "
                     f"بافر تاییدیه={breakout_buffer:.4g}) با حجم ({curr['volume']:.2f}) "
-                    f"≥ {VOLUME_CONFIRM_MULTIPLIER}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
+                    f"≥ {p['volume_multiplier']}× میانگین — edge تجربی منفی برای دنبال‌کردن این شکست"
                 ),
                 strategy_name=self.name,
                 native_order_hint="oco",

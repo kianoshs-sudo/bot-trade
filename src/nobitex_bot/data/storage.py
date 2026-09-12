@@ -91,7 +91,19 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     stop_loss TEXT,
     take_profit TEXT,
     exit_client_order_id TEXT,
+    portfolio TEXT,
     status TEXT NOT NULL DEFAULT 'open'
+);
+
+-- منحنی سرمایهٔ هر سبد، یک ردیف در هر چرخه. equity = سرمایهٔ محقق‌شده + سود/زیان
+-- پوزیشن‌های باز با قیمت لحظه‌ای؛ بدون این، منحنی فقط با بسته شدن معامله تکان می‌خورد.
+CREATE TABLE IF NOT EXISTS equity_snapshots (
+    portfolio TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    capital TEXT NOT NULL,
+    equity TEXT NOT NULL,
+    open_positions INTEGER NOT NULL,
+    PRIMARY KEY (portfolio, ts)
 );
 """
 
@@ -101,6 +113,7 @@ _PAPER_TRADE_MIGRATIONS = {
     "stop_loss": "ALTER TABLE paper_trades ADD COLUMN stop_loss TEXT",
     "take_profit": "ALTER TABLE paper_trades ADD COLUMN take_profit TEXT",
     "exit_client_order_id": "ALTER TABLE paper_trades ADD COLUMN exit_client_order_id TEXT",
+    "portfolio": "ALTER TABLE paper_trades ADD COLUMN portfolio TEXT",
 }
 
 
@@ -312,7 +325,7 @@ class Storage:
         self, symbol: str, strategy_name: str, resolution: str, direction: str, entry_time: int, entry_price: Decimal,
         size_quote: Decimal, entry_reason: str, client_order_id: str | None = None,
         stop_loss: Decimal | None = None, take_profit: Decimal | None = None,
-        exit_client_order_id: str | None = None,
+        exit_client_order_id: str | None = None, portfolio: str | None = None,
     ) -> int:
         """SL/TP هم ذخیره می‌شن چون بدون‌شون پوزیشن باز بعد از ری‌استارت
         (یا هر اجرای جدید ``--once``) قابل بازسازی نیست — برای بررسی برخورد
@@ -323,15 +336,15 @@ class Storage:
             """
             INSERT INTO paper_trades
                 (symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, entry_reason,
-                 client_order_id, stop_loss, take_profit, exit_client_order_id, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
+                 client_order_id, stop_loss, take_profit, exit_client_order_id, portfolio, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open')
             """,
             (
                 symbol, strategy_name, resolution, direction, entry_time, str(entry_price), str(size_quote),
                 entry_reason, client_order_id,
                 None if stop_loss is None else str(stop_loss),
                 None if take_profit is None else str(take_profit),
-                exit_client_order_id,
+                exit_client_order_id, portfolio,
             ),
         )
         self._conn.commit()
@@ -353,7 +366,7 @@ class Storage:
     def get_open_paper_trades(self, symbol: str | None = None) -> list[dict]:
         query = (
             "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, size_quote, "
-            "entry_reason, stop_loss, take_profit, exit_client_order_id FROM paper_trades WHERE status = 'open'"
+            "entry_reason, stop_loss, take_profit, exit_client_order_id, portfolio FROM paper_trades WHERE status = 'open'"
         )
         params: list[object] = []
         if symbol is not None:
@@ -362,14 +375,15 @@ class Storage:
         cursor = self._conn.execute(query, params)
         keys = [
             "id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "size_quote",
-            "entry_reason", "stop_loss", "take_profit", "exit_client_order_id",
+            "entry_reason", "stop_loss", "take_profit", "exit_client_order_id", "portfolio",
         ]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
 
     def get_closed_paper_trades(self, strategy_name: str | None = None) -> list[dict]:
         query = (
             "SELECT id, symbol, strategy_name, resolution, direction, entry_time, entry_price, exit_time, exit_price, "
-            "size_quote, fee_paid, pnl, entry_reason, exit_reason FROM paper_trades WHERE status = 'closed'"
+            "size_quote, fee_paid, pnl, entry_reason, exit_reason, stop_loss, take_profit, portfolio "
+            "FROM paper_trades WHERE status = 'closed'"
         )
         params: list[object] = []
         if strategy_name is not None:
@@ -378,6 +392,33 @@ class Storage:
         cursor = self._conn.execute(query, params)
         keys = [
             "id", "symbol", "strategy_name", "resolution", "direction", "entry_time", "entry_price", "exit_time", "exit_price",
-            "size_quote", "fee_paid", "pnl", "entry_reason", "exit_reason",
+            "size_quote", "fee_paid", "pnl", "entry_reason", "exit_reason", "stop_loss", "take_profit", "portfolio",
         ]
         return [dict(zip(keys, row, strict=True)) for row in cursor.fetchall()]
+
+    # ------------------------------------------------------------------
+    # equity_snapshots — منحنی سرمایهٔ هر سبد
+    # ------------------------------------------------------------------
+
+    def record_equity_snapshot(
+        self, portfolio: str, ts: int, capital: Decimal, equity: Decimal, open_positions: int
+    ) -> None:
+        self._conn.execute(
+            "INSERT OR REPLACE INTO equity_snapshots (portfolio, ts, capital, equity, open_positions) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (portfolio, ts, str(capital), str(equity), open_positions),
+        )
+        self._conn.commit()
+
+    def get_equity_snapshots(self, portfolio: str | None = None, since_ts: int | None = None) -> list[dict]:
+        query = "SELECT portfolio, ts, capital, equity, open_positions FROM equity_snapshots WHERE 1=1"
+        params: list[object] = []
+        if portfolio is not None:
+            query += " AND portfolio = ?"
+            params.append(portfolio)
+        if since_ts is not None:
+            query += " AND ts >= ?"
+            params.append(since_ts)
+        query += " ORDER BY portfolio, ts"
+        keys = ["portfolio", "ts", "capital", "equity", "open_positions"]
+        return [dict(zip(keys, row, strict=True)) for row in self._conn.execute(query, params).fetchall()]

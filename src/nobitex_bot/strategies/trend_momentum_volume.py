@@ -53,35 +53,49 @@ ATR_TAKE_PROFIT_MULTIPLIER = Decimal("4")
 class TrendMomentumVolumeStrategy(Strategy):
     name = "trend_momentum_volume"
     min_candles = 50  # EMA50 به حداقل ۵۰ کندل برای مقدار معتبر (غیر NaN) نیاز داره
+    # پیش‌فرض‌ها همان مقادیر تست‌شدهٔ بالا هستند؛ پروفایل سبد فقط چیزی را که صریحاً
+    # می‌خواهد عوض می‌کند.
+    default_params = {
+        "atr_stop": ATR_STOP_MULTIPLIER,
+        "atr_take_profit": ATR_TAKE_PROFIT_MULTIPLIER,
+        "volume_ma_period": VOLUME_MA_PERIOD,
+        "volume_multiplier": 1.0,  # حجم کندل > میانگین × این عدد؛ ۰ یعنی فیلتر حجم عملاً خاموش
+        "use_trend_filter": True,  # شرط close نسبت به EMA50
+        "rsi_sell_min": 50.0,
+        "rsi_sell_max": 75.0,
+        "rsi_buy_min": 25.0,
+        "rsi_buy_max": 50.0,
+    }
 
     def generate_entry_signal(self, df: pd.DataFrame, symbol: str) -> TradeSignal | None:
-        if len(df) < max(self.min_candles, VOLUME_MA_PERIOD + 1):
+        p = self.params
+        if len(df) < max(self.min_candles, p["volume_ma_period"] + 1):
             return None
 
         prev, curr = df.iloc[-2], df.iloc[-1]
         if curr[["EMA_9", "EMA_21", "EMA_50", "RSI_14", "ATRr_14"]].isna().any():
             return None
 
-        volume_ma = df["volume"].rolling(VOLUME_MA_PERIOD).mean().iloc[-1]
-        volume_confirmed = curr["volume"] > volume_ma
+        volume_ma = df["volume"].rolling(p["volume_ma_period"]).mean().iloc[-1]
+        volume_confirmed = curr["volume"] > volume_ma * p["volume_multiplier"]
 
         bullish_cross = prev["EMA_9"] <= prev["EMA_21"] and curr["EMA_9"] > curr["EMA_21"]
         bearish_cross = prev["EMA_9"] >= prev["EMA_21"] and curr["EMA_9"] < curr["EMA_21"]
 
-        trend_up = curr["close"] > curr["EMA_50"]
-        trend_down = curr["close"] < curr["EMA_50"]
+        trend_up = curr["close"] > curr["EMA_50"] or not p["use_trend_filter"]
+        trend_down = curr["close"] < curr["EMA_50"] or not p["use_trend_filter"]
 
         close = Decimal(str(curr["close"]))
         atr = Decimal(str(curr["ATRr_14"]))
 
         # fade: کراس صعودی -> sell (edge تست شده منفی بود برای buy، پس معکوسش می‌کنیم)
-        if bullish_cross and volume_confirmed and trend_up and 50 <= curr["RSI_14"] <= 75:
+        if bullish_cross and volume_confirmed and trend_up and p["rsi_sell_min"] <= curr["RSI_14"] <= p["rsi_sell_max"]:
             return TradeSignal(
                 symbol=symbol,
                 direction="sell",
                 entry_price_hint=close,
-                stop_loss=close + atr * ATR_STOP_MULTIPLIER,
-                take_profit=close - atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                stop_loss=close + atr * p["atr_stop"],
+                take_profit=close - atr * p["atr_take_profit"],
                 reason=(
                     f"Fade کراس صعودی EMA9/EMA21 بالای EMA50 + RSI={curr['RSI_14']:.1f} "
                     f"+ حجم ({curr['volume']:.2f}) — edge تجربی منفی برای دنبال‌کردن این کراس، "
@@ -91,13 +105,13 @@ class TrendMomentumVolumeStrategy(Strategy):
             )
 
         # fade: کراس نزولی -> buy
-        if bearish_cross and volume_confirmed and trend_down and 25 <= curr["RSI_14"] <= 50:
+        if bearish_cross and volume_confirmed and trend_down and p["rsi_buy_min"] <= curr["RSI_14"] <= p["rsi_buy_max"]:
             return TradeSignal(
                 symbol=symbol,
                 direction="buy",
                 entry_price_hint=close,
-                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
-                take_profit=close + atr * ATR_TAKE_PROFIT_MULTIPLIER,
+                stop_loss=close - atr * p["atr_stop"],
+                take_profit=close + atr * p["atr_take_profit"],
                 reason=(
                     f"Fade کراس نزولی EMA9/EMA21 زیر EMA50 + RSI={curr['RSI_14']:.1f} "
                     f"+ حجم ({curr['volume']:.2f}) — edge تجربی منفی برای دنبال‌کردن این کراس، "

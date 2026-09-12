@@ -90,20 +90,44 @@ class OpenPosition:
     exit_client_order_id: str | None = None
 
 
+@dataclass(frozen=True)
+class SignalSource:
+    """یک منبع سیگنال داخل سبد: استراتژی (با پارامترهایش) روی یک تایم‌فریم."""
+
+    strategy: Strategy
+    resolution: str
+
+
 @dataclass
 class StrategyTrack:
-    """یک ترکیب مستقل (استراتژی + تایم‌فریم) با سرمایه/ریسک/پوزیشن‌های خودش —
-    برای تست هم‌زمان چند استراتژی در چند تایم‌فریم بدون تداخل حساب‌ها."""
+    """یک حساب مجازی مستقل با سرمایه/ریسک/پوزیشن‌های خودش.
+
+    دو شکل دارد:
+    - قدیمی: یک استراتژی روی یک تایم‌فریم (``strategy@resolution``).
+    - سبد (``portfolio`` پر است): چند منبع سیگنال با سرمایهٔ مشترک. برای هر نماد
+      منابع به ترتیب امتحان می‌شوند و اولین سیگنالی که قبول شود معامله می‌شود؛ پس
+      منبع «هر طور شده» باید آخر فهرست باشد. معامله با نام سبد (مثل
+      ``loose-long@v1``) ذخیره می‌شود تا نسخهٔ تازهٔ قوانین با آمار و سرمایهٔ تازه
+      شروع کند و نسخهٔ قبلی به‌عنوان کنترل دست‌نخورده بماند.
+    """
 
     strategy: Strategy
     resolution: str
     capital: Decimal
     risk_manager: RiskManager = field(default_factory=RiskManager)
     open_positions: dict[str, OpenPosition] = field(default_factory=dict)
+    portfolio: str | None = None
+    long_only: bool = False  # حساب اسپات: سیگنال فروش ثبت می‌شود ولی پوزیشن باز نمی‌شود
+    extra_sources: list[SignalSource] = field(default_factory=list)
+    initial_capital: Decimal | None = None
+
+    @property
+    def sources(self) -> list[SignalSource]:
+        return [SignalSource(self.strategy, self.resolution), *self.extra_sources]
 
     @property
     def label(self) -> str:
-        return f"{self.strategy.name}@{self.resolution}"
+        return self.portfolio or f"{self.strategy.name}@{self.resolution}"
 
 
 @dataclass
@@ -132,10 +156,10 @@ class PaperTradingRunner:
     # HTTP401 رد شد و نتیجه‌اش این بود که هیچ معامله‌ای — حتی مجازی — ثبت نشد و
     # منحنی سرمایه هیچ‌وقت شکل نگرفت.
     simulate: bool = False
-    # کندل‌های گرفته‌شده در همین چرخه، به کلید (نماد، تایم‌فریم). سقف ۲۰ درخواست کندل
-    # در دقیقه گلوگاه اصلی است و بدون این، هر استراتژی همان کندل‌ها را دوباره می‌گرفت.
-    # اول هر چرخه خالی می‌شود تا سیگنال هیچ‌وقت روی کندل چرخهٔ قبل ساخته نشود.
-    _cycle_candles: dict = field(default_factory=dict, init=False, repr=False)
+    # دیتافریم اندیکاتورهای همین چرخه، به کلید (نماد، تایم‌فریم)؛ None یعنی کندل کافی نبود.
+    # سقف ۲۰ درخواست کندل در دقیقه گلوگاه اصلی است و بدون این، هر استراتژی همان کندل‌ها
+    # را دوباره می‌گرفت. اول هر چرخه خالی می‌شود تا سیگنال روی کندل چرخهٔ قبل ساخته نشود.
+    _cycle_frames: dict = field(default_factory=dict, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.settings.env != "testnet":
@@ -143,6 +167,13 @@ class PaperTradingRunner:
                 "PaperTradingRunner فقط روی NOBITEX_ENV=testnet مجازه — فاز ۷ (پول واقعی) "
                 "هنوز نیاز به تایید صریح کاربر داره و فعال نشده"
             )
+
+    @staticmethod
+    def _row_label(row: dict) -> str:
+        """معامله‌های سبد با نام سبد ذخیره می‌شوند؛ معامله‌های قدیمی ستون portfolio ندارند.
+        بازسازی با ``strategy@resolution`` برای سبدها غلط است: دو سبد می‌توانند همان
+        استراتژی و تایم‌فریم را داشته باشند."""
+        return row.get("portfolio") or f"{row['strategy_name']}@{row['resolution']}"
 
     def restore_state(self) -> None:
         """پوزیشن‌های باز و سرمایهٔ هر track رو از دیتابیس بازسازی می‌کنه.
@@ -157,7 +188,7 @@ class PaperTradingRunner:
         by_label = {track.label: track for track in self.tracks}
 
         for row in self.storage.get_open_paper_trades():
-            track = by_label.get(f"{row['strategy_name']}@{row['resolution']}")
+            track = by_label.get(self._row_label(row))
             if track is None:
                 continue  # ترکیبی که این اجرا فعال نیست — دست‌نخورده در دیتابیس می‌مونه
             if row["stop_loss"] is None or row["take_profit"] is None:
@@ -184,7 +215,7 @@ class PaperTradingRunner:
         # درست بازسازی بشه (خودش موقع تغییر روز صفر می‌شه).
         closed = sorted(self.storage.get_closed_paper_trades(), key=lambda r: r["exit_time"] or 0)
         for row in closed:
-            track = by_label.get(f"{row['strategy_name']}@{row['resolution']}")
+            track = by_label.get(self._row_label(row))
             if track is None or row["pnl"] is None:
                 continue
             pnl = Decimal(row["pnl"])
@@ -200,7 +231,7 @@ class PaperTradingRunner:
 
     def run_once(self) -> None:
         cycle_start = time.time()
-        self._cycle_candles.clear()
+        self._cycle_frames.clear()
         self._reload_risk_config_if_configured()
 
         for track in self.tracks:
@@ -246,6 +277,7 @@ class PaperTradingRunner:
                     if len(track.open_positions) >= track.risk_manager.config.max_concurrent_trades:
                         break
 
+        self._record_equity_snapshots()
         self._write_status_snapshot_if_configured(time.time() - cycle_start, opportunities)
 
     def _reload_risk_config_if_configured(self) -> None:
@@ -255,7 +287,10 @@ class PaperTradingRunner:
 
         new_config = load_risk_config(self.risk_config_path)
         for track in self.tracks:
-            track.risk_manager.config = new_config
+            # ریسک هر سبد جزو تعریف همان نسخه است؛ تنظیم سراسری داشبورد نباید قوانین
+            # «راحت» و «سختگیرانه» را یکسان کند.
+            if track.portfolio is None:
+                track.risk_manager.config = new_config
 
     def _collect_reference_data_if_configured(self, opportunities: list) -> None:
         """بهترین‌تلاش، غیرمسدودکننده: هیچ خطایی در جمع‌آوری دادهٔ مرجع
@@ -279,6 +314,30 @@ class PaperTradingRunner:
         write_status_snapshot(
             self.status_snapshot_path, self.tracks, cycle_duration_seconds=cycle_duration_seconds, watchlist=watchlist
         )
+
+    def _record_equity_snapshots(self) -> None:
+        """یک نقطه روی منحنی سرمایهٔ هر سبد. بهترین‌تلاش: خطای قیمت یا دیتابیس نباید
+        چرخه و snapshot وضعیت را بکشد."""
+        portfolio_tracks = [t for t in self.tracks if t.portfolio]
+        if not portfolio_tracks:
+            return
+        try:
+            stats = self._udf_keyed_market_stats()
+            ts = int(time.time())
+            for track in portfolio_tracks:
+                unrealized = Decimal(0)
+                for position in track.open_positions.values():
+                    stat = stats.get(position.symbol)
+                    price = stat.latest if stat is not None else None
+                    if not price:
+                        continue
+                    move = (price - position.entry_price) / position.entry_price
+                    unrealized += (move if position.direction == "buy" else -move) * position.size_quote
+                self.storage.record_equity_snapshot(
+                    track.label, ts, track.capital, track.capital + unrealized, len(track.open_positions)
+                )
+        except Exception:
+            logger.exception("ثبت منحنی سرمایه ناموفق بود — چرخه ادامه پیدا می‌کند")
 
     def _udf_keyed_market_stats(self) -> dict:
         """``market/stats`` نمادها رو با فرمت خام صرافی برمی‌گردونه (مثل
@@ -323,17 +382,27 @@ class PaperTradingRunner:
         return rate if rate and rate > 0 else None
 
     def _try_enter(self, track: StrategyTrack, symbol: str) -> bool:
+        for source in track.sources:
+            outcome = self._try_enter_from_source(track, source, symbol)
+            if outcome is not None:
+                return outcome
+        return False
+
+    def _try_enter_from_source(self, track: StrategyTrack, source: SignalSource, symbol: str) -> bool | None:
+        """``None`` یعنی این منبع سیگنال قابل‌قبولی نداد و منبع بعدی امتحان شود؛
+        ``True``/``False`` یعنی تصمیم قطعی شد (باز شد، یا مدیریت ریسک/تایید رد کرد)."""
         now = int(time.time())
         span_seconds = 200 * 3600
-        cache_key = (symbol, track.resolution)
-        candles = self._cycle_candles.get(cache_key)
-        if candles is None:
-            candles = self.market_data.get_ohlc_history(symbol, track.resolution, now - span_seconds, now)
-            self._cycle_candles[cache_key] = candles
-        candles = drop_unclosed_last_candle(candles, RESOLUTION_SECONDS[track.resolution], now)
-        if len(candles) < MIN_CANDLES_FOR_INDICATORS:
-            return False
-        df = compute_indicators(candles_to_dataframe(candles))
+        cache_key = (symbol, source.resolution)
+        if cache_key not in self._cycle_frames:
+            candles = self.market_data.get_ohlc_history(symbol, source.resolution, now - span_seconds, now)
+            candles = drop_unclosed_last_candle(candles, RESOLUTION_SECONDS[source.resolution], now)
+            self._cycle_frames[cache_key] = (
+                compute_indicators(candles_to_dataframe(candles)) if len(candles) >= MIN_CANDLES_FOR_INDICATORS else None
+            )
+        df = self._cycle_frames[cache_key]
+        if df is None:
+            return None
 
         stats = self._udf_keyed_market_stats()
         market_price = stats[symbol].latest if symbol in stats and stats[symbol].latest else None
@@ -345,12 +414,22 @@ class PaperTradingRunner:
             logger.warning("نرخ تبدیل ارز مقصد %s در دسترس نیست — ورود انجام نشد", symbol)
             return False
 
-        signal = track.strategy.generate_entry_signal(df, symbol)
+        signal = source.strategy.generate_entry_signal(df, symbol)
         if signal is None:
-            return False
+            return None
 
+        # details فقط برای سبدها، تا شکل لاگ حالت قدیمی دست نخورد
+        extra = {"details": {"portfolio": track.portfolio, "resolution": source.resolution}} if track.portfolio else {}
         if self.decision_logger is not None:
-            self.decision_logger.log("entry_signal", symbol, track.strategy.name, signal.reason)
+            self.decision_logger.log("entry_signal", symbol, source.strategy.name, signal.reason, **extra)
+
+        if track.long_only and signal.direction == "sell":
+            if self.decision_logger is not None:
+                self.decision_logger.log(
+                    "direction_filtered", symbol, source.strategy.name,
+                    "سبد فقط خرید (اسپات) است — سیگنال فروش ثبت شد ولی پوزیشن باز نشد", **extra,
+                )
+            return None
 
         # سرمایهٔ درگیر در پوزیشن‌های باز باید به مدیریت ریسک داده بشه، وگرنه
         # سقف سرمایه بی‌اثره: هر پوزیشن جدید تا کل سرمایه مجاز می‌شه و مجموع
@@ -367,16 +446,16 @@ class PaperTradingRunner:
         if not decision.approved:
             logger.info("[%s] سیگنال %s رد شد توسط مدیریت ریسک: %s", track.label, symbol, decision.reason)
             if self.decision_logger is not None:
-                self.decision_logger.log("risk_rejected", symbol, track.strategy.name, decision.reason)
+                self.decision_logger.log("risk_rejected", symbol, source.strategy.name, decision.reason, **extra)
             return False
 
         if not self.approval_gate.request_approval(signal, decision.position_size_quote):
             logger.info("[%s] سیگنال %s توسط کاربر رد شد", track.label, symbol)
             if self.decision_logger is not None:
-                self.decision_logger.log("approval_rejected", symbol, track.strategy.name, "کاربر تایید نکرد")
+                self.decision_logger.log("approval_rejected", symbol, source.strategy.name, "کاربر تایید نکرد", **extra)
             return False
 
-        self._open_position(track, signal, decision.position_size_quote, quote_rate)
+        self._open_position(track, signal, decision.position_size_quote, quote_rate, source=source)
         return True
 
     def _notify(self, text: str) -> None:
@@ -389,8 +468,10 @@ class PaperTradingRunner:
             logger.exception("ارسال اعلان ناموفق بود — چرخه ادامه پیدا می‌کند")
 
     def _open_position(
-        self, track: StrategyTrack, signal, size_quote: Decimal, quote_rate: Decimal = Decimal(1)
+        self, track: StrategyTrack, signal, size_quote: Decimal, quote_rate: Decimal = Decimal(1),
+        source: SignalSource | None = None,
     ) -> None:
+        source = source or track.sources[0]
         # ``size_quote`` به واحد سرمایه (ریال) است؛ برای گرفتن *تعداد ارز* باید
         # اول به ارز مقصدِ همین بازار تبدیل بشه. در بازار ریالی نرخ ۱ است و
         # چیزی عوض نمی‌شه؛ در بازار تتری بدون این تبدیل، یک مقدار ریالی بر
@@ -432,15 +513,15 @@ class PaperTradingRunner:
             exit_client_order_id = self._submit_exit_order(signal, amount)
 
         trade_id = self.storage.open_paper_trade(
-            signal.symbol, track.strategy.name, track.resolution, signal.direction, int(time.time()),
+            signal.symbol, source.strategy.name, source.resolution, signal.direction, int(time.time()),
             signal.entry_price_hint, size_quote, signal.reason,
             stop_loss=signal.stop_loss, take_profit=signal.take_profit,
-            exit_client_order_id=exit_client_order_id,
+            exit_client_order_id=exit_client_order_id, portfolio=track.portfolio,
         )
         track.open_positions[signal.symbol] = OpenPosition(
             trade_id=trade_id,
             symbol=signal.symbol,
-            strategy_name=track.strategy.name,
+            strategy_name=source.strategy.name,
             direction=signal.direction,
             entry_price=signal.entry_price_hint,
             stop_loss=signal.stop_loss,
@@ -451,12 +532,14 @@ class PaperTradingRunner:
         logger.info("[%s] پوزیشن جدید باز شد: %s اندازه=%s", track.label, signal.symbol, size_quote)
         if self.decision_logger is not None:
             self.decision_logger.log(
-                "position_opened", signal.symbol, track.strategy.name, signal.reason,
+                "position_opened", signal.symbol, source.strategy.name, signal.reason,
                 details={
                     "entry_price": str(signal.entry_price_hint),
                     "stop_loss": str(signal.stop_loss),
                     "take_profit": str(signal.take_profit),
                     "simulated": self.simulate,
+                    "portfolio": track.portfolio,
+                    "resolution": source.resolution,
                 },
             )
 
@@ -579,6 +662,6 @@ class PaperTradingRunner:
         logger.info("[%s] پوزیشن %s بسته شد: %s (pnl=%s)", track.label, position.symbol, exit_reason, net_pnl)
         if self.decision_logger is not None:
             self.decision_logger.log(
-                "position_closed", position.symbol, track.strategy.name, exit_reason,
-                details={"exit_price": str(exit_price), "pnl": str(net_pnl)},
+                "position_closed", position.symbol, position.strategy_name, exit_reason,
+                details={"exit_price": str(exit_price), "pnl": str(net_pnl), "portfolio": track.portfolio},
             )

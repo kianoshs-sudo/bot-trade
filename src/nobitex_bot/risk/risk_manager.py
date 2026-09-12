@@ -33,6 +33,9 @@ class RiskConfig:
     max_daily_loss_pct: Decimal = Decimal("0.05")  # ۵٪ ضرر روزانه -> توقف تا روز بعد
     max_concurrent_trades: int = 3
     max_price_deviation: Decimal = Decimal(str(MAX_PRICE_DEVIATION_RATIO))  # قید BadPrice
+    # سقف اندازهٔ هر پوزیشن به نسبت کل سرمایه؛ None یعنی فقط سقف سرمایهٔ آزاد (رفتار قبلی).
+    # بدون این، با SL نزدیک یک معامله کل حساب را می‌گرفت و سقف «۸ پوزیشن هم‌زمان» بی‌معنی می‌شد.
+    max_position_pct: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -118,6 +121,9 @@ class RiskManager:
         # در بازار spot (بدون مارجین) این یعنی خطای موجودی یا رفتن کل سرمایه
         # در یک معامله. سقف نسبت به سرمایهٔ **آزاد** اعمال می‌شه تا مجموع
         # پوزیشن‌های باز هیچ‌وقت از سرمایه عبور نکنه.
+        if self.config.max_position_pct is not None:
+            position_size = min(position_size, capital * self.config.max_position_pct)
+
         available_capital = capital - committed_quote
         if available_capital <= 0:
             return RiskDecision(

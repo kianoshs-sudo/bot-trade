@@ -38,6 +38,7 @@ from nobitex_bot.notifications.composite import CompositeNotifier
 from nobitex_bot.notifications.telegram import TelegramNotifier
 from nobitex_bot.paper_trading.approval import AutoApproveGate, ManualCLIApprovalGate
 from nobitex_bot.paper_trading.messaging_approval import MessagingApprovalGate, NotifyingAutoApproveGate
+from nobitex_bot.paper_trading.portfolios import load_portfolios
 from nobitex_bot.paper_trading.runner import PaperTradingRunner, StrategyTrack
 from nobitex_bot.paper_trading.status_command import handle_status_command
 from nobitex_bot.risk.config_store import load_risk_config
@@ -73,6 +74,11 @@ def parse_args() -> argparse.Namespace:
         "برای پاسخ به «سرمایه روی این سیگنال‌ها چه می‌شه» به صرافی نیازی نیست — و بدون این فلگ، "
         "ثبت معاملهٔ کاغذی به موفقیت سفارش گره خورده: وقتی صرافی رد می‌کنه (مثلاً کلید API نامعتبر)، "
         "هیچ معامله‌ای حتی مجازی ثبت نمی‌شه و منحنی سرمایه هیچ‌وقت شکل نمی‌گیره",
+    )
+    parser.add_argument(
+        "--portfolios", type=Path, default=None,
+        help="فایل تعریف سبدها (مثل config/portfolios.json). وقتی داده شود، --resolutions و "
+        "--initial-capital و تنظیم ریسک داشبورد نادیده گرفته می‌شوند: هر سبد قوانین، جهت و سرمایهٔ خودش را دارد",
     )
     parser.add_argument("--interval-minutes", type=int, default=15, help="فاصلهٔ هر چرخهٔ اسکن+تصمیم")
     parser.add_argument(
@@ -207,18 +213,23 @@ def main() -> None:
     else:  # messaging — تایید صریح با انتظار، برای فاز ۷ (پول واقعی) نگه داشته شده
         approval_gate = MessagingApprovalGate(notifier=notifier)
 
-    # اگه از داشبورد (فاز ۸) تنظیمات ریسک ذخیره شده باشه، همون جایگزین پیش‌فرض می‌شه
-    initial_risk_config = load_risk_config(settings.data_dir / "risk_config.json")
-    tracks = [
-        StrategyTrack(
-            strategy=get_strategy(strategy_name),
-            resolution=resolution,
-            capital=Decimal(str(args.initial_capital)),
-            risk_manager=RiskManager(initial_risk_config),
-        )
-        for strategy_name in list_strategies()
-        for resolution in resolutions
-    ]
+    if args.portfolios is not None:
+        tracks = load_portfolios(args.portfolios)
+        risk_config_path = None
+    else:
+        # اگه از داشبورد (فاز ۸) تنظیمات ریسک ذخیره شده باشه، همون جایگزین پیش‌فرض می‌شه
+        risk_config_path = settings.data_dir / "risk_config.json"
+        initial_risk_config = load_risk_config(risk_config_path)
+        tracks = [
+            StrategyTrack(
+                strategy=get_strategy(strategy_name),
+                resolution=resolution,
+                capital=Decimal(str(args.initial_capital)),
+                risk_manager=RiskManager(initial_risk_config),
+            )
+            for strategy_name in list_strategies()
+            for resolution in resolutions
+        ]
     logger.info("تعداد ترکیب استراتژی×تایم‌فریم فعال: %d (%s)", len(tracks), ", ".join(t.label for t in tracks))
 
     status_snapshot_path = settings.data_dir / "status.json"
@@ -240,7 +251,7 @@ def main() -> None:
         approval_gate=approval_gate,
         decision_logger=decision_logger,
         status_snapshot_path=status_snapshot_path,
-        risk_config_path=settings.data_dir / "risk_config.json",
+        risk_config_path=risk_config_path,
         reference_collector=reference_collector,
         notifier=notifier,
         simulate=args.simulate,

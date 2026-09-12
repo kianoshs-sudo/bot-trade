@@ -36,11 +36,42 @@ class TradeSignal:
             raise ValueError("direction باید 'buy' یا 'sell' باشه")
 
 
+def _coerce_param(name: str, default: object, value: object) -> object:
+    """مقدار خوانده‌شده از JSON را به نوع پیش‌فرض برمی‌گرداند. ضریب‌هایی که در
+    محاسبهٔ قیمت SL/TP ضرب می‌شوند Decimal می‌مانند تا حساب پولی با float نشود."""
+    if isinstance(default, bool):
+        if not isinstance(value, bool):
+            raise ValueError(f"پارامتر {name} باید true/false باشد، نه {value!r}")
+        return value
+    if isinstance(default, Decimal):
+        return Decimal(str(value))
+    if isinstance(default, int):
+        return int(value)
+    if isinstance(default, float):
+        return float(value)
+    return value
+
+
 class Strategy(ABC):
     """کلاس پایه — هر استراتژی جدید فقط باید این دو متد رو پیاده کنه."""
 
     name: str
     min_candles: int = 35  # هم‌راستا با MIN_CANDLES_FOR_INDICATORS
+    # پارامترهای قابل تنظیم با مقدار پیش‌فرض. پروفایل هر سبد (config/portfolios.json)
+    # فقط کلیدهایی را که می‌خواهد عوض می‌کند؛ کلید ناشناخته خطاست تا غلط تایپی
+    # بی‌صدا به «پیش‌فرض» تبدیل نشود.
+    default_params: dict[str, object] = {}
+
+    def __init__(self, **params: object) -> None:
+        unknown = set(params) - set(self.default_params)
+        if unknown:
+            raise ValueError(
+                f"پارامتر ناشناخته برای {self.name}: {sorted(unknown)} — مجاز: {sorted(self.default_params)}"
+            )
+        self.params = {
+            key: _coerce_param(key, default, params[key]) if key in params else default
+            for key, default in self.default_params.items()
+        }
 
     @abstractmethod
     def generate_entry_signal(self, df: pd.DataFrame, symbol: str) -> TradeSignal | None:

@@ -33,8 +33,16 @@ RSI_OVERBOUGHT = 70
 
 class MeanReversionStrategy(Strategy):
     name = "mean_reversion_rsi_bb"
+    default_params = {
+        "atr_stop": ATR_STOP_MULTIPLIER,
+        "rsi_oversold": float(RSI_OVERSOLD),
+        "rsi_overbought": float(RSI_OVERBOUGHT),
+        # چند درصد مانده به باند هم «رسیدن» حساب شود؛ ۰ یعنی فقط لمس یا عبور از باند
+        "band_tolerance_pct": 0.0,
+    }
 
     def generate_entry_signal(self, df: pd.DataFrame, symbol: str) -> TradeSignal | None:
+        p = self.params
         if len(df) < self.min_candles:
             return None
 
@@ -48,12 +56,12 @@ class MeanReversionStrategy(Strategy):
         bbl = Decimal(str(curr["BBL_20_2.0"]))
         bbu = Decimal(str(curr["BBU_20_2.0"]))
 
-        if curr["close"] <= curr["BBL_20_2.0"] and curr["RSI_14"] < RSI_OVERSOLD:
+        if curr["close"] <= curr["BBL_20_2.0"] * (1 + p["band_tolerance_pct"]) and curr["RSI_14"] < p["rsi_oversold"]:
             return TradeSignal(
                 symbol=symbol,
                 direction="buy",
                 entry_price_hint=close,
-                stop_loss=close - atr * ATR_STOP_MULTIPLIER,
+                stop_loss=close - atr * p["atr_stop"],
                 take_profit=bbu,
                 reason=(
                     f"قیمت به باند پایین بولینگر رسید (close={curr['close']:.4g} <= "
@@ -62,12 +70,12 @@ class MeanReversionStrategy(Strategy):
                 strategy_name=self.name,
             )
 
-        if curr["close"] >= curr["BBU_20_2.0"] and curr["RSI_14"] > RSI_OVERBOUGHT:
+        if curr["close"] >= curr["BBU_20_2.0"] * (1 - p["band_tolerance_pct"]) and curr["RSI_14"] > p["rsi_overbought"]:
             return TradeSignal(
                 symbol=symbol,
                 direction="sell",
                 entry_price_hint=close,
-                stop_loss=close + atr * ATR_STOP_MULTIPLIER,
+                stop_loss=close + atr * p["atr_stop"],
                 take_profit=bbl,
                 reason=(
                     f"قیمت به باند بالای بولینگر رسید (close={curr['close']:.4g} >= "

@@ -1,0 +1,55 @@
+{
+  "_note": "سبدهای معاملهٔ کاغذی. سرمایه به ریال: ۱۰۰٬۰۰۰٬۰۰۰ ریال = ۱۰ میلیون تومان. تغییر قوانین = نسخهٔ جدید (version+1)، نه ویرایش نسخهٔ در حال اجرا. ترتیب sources مهم است: اولین سیگنال قبول‌شده معامله می‌شود.",
+  "profiles": {
+    "loose": {
+      "description": "راحت — فیلترها باز، تایم‌فریم ۵ دقیقه، و در آخر گروه کنترل «هر طور شده» (ema21_side). انتظار سود ندارد؛ برای جمع کردن داده و دلیل شکست است.",
+      "risk": {
+        "risk_per_trade_pct": "0.01",
+        "max_daily_loss_pct": "0.10",
+        "max_concurrent_trades": 8,
+        "max_position_pct": "0.2"
+      },
+      "sources": [
+        {"strategy": "mean_reversion_rsi_bb", "resolution": "5", "params": {"rsi_oversold": 40, "rsi_overbought": 60, "band_tolerance_pct": 0.002}},
+        {"strategy": "trend_momentum_volume", "resolution": "5", "params": {"volume_multiplier": 0, "use_trend_filter": false, "rsi_sell_min": 40, "rsi_sell_max": 85, "rsi_buy_min": 15, "rsi_buy_max": 60}},
+        {"strategy": "breakout_atr", "resolution": "5", "params": {"channel_period": 10, "confirm_atr": 0, "volume_multiplier": 0}},
+        {"strategy": "ema21_side", "resolution": "5"}
+      ]
+    },
+    "strict": {
+      "description": "سختگیرانه — تأیید حجم و RSI تنگ‌تر، تایم‌فریم ۱۵ دقیقه، سقف ضرر روزانه ۳٪.",
+      "risk": {
+        "risk_per_trade_pct": "0.01",
+        "max_daily_loss_pct": "0.03",
+        "max_concurrent_trades": 3,
+        "max_position_pct": "0.33"
+      },
+      "sources": [
+        {"strategy": "trend_momentum_volume", "resolution": "15", "params": {"volume_multiplier": 1.5, "rsi_sell_min": 55, "rsi_sell_max": 70, "rsi_buy_min": 30, "rsi_buy_max": 45}},
+        {"strategy": "mean_reversion_rsi_bb", "resolution": "15", "params": {"rsi_oversold": 25, "rsi_overbought": 75}},
+        {"strategy": "breakout_atr", "resolution": "15", "params": {"confirm_atr": 0.5, "volume_multiplier": 2.0}}
+      ]
+    },
+    "tuned": {
+      "description": "تنظیم‌شده روی دادهٔ گذشته — v1 همان پارامترهایی است که سشن‌های قبل با جاروب روی کندل‌های ساعتی ذخیره‌شده انتخاب کردند. v2 از بک‌تست با تفکیک تنظیم/آزمون (تسک T8) می‌آید.",
+      "risk": {
+        "risk_per_trade_pct": "0.02",
+        "max_daily_loss_pct": "0.05",
+        "max_concurrent_trades": 3
+      },
+      "sources": [
+        {"strategy": "trend_momentum_volume", "resolution": "60"},
+        {"strategy": "mean_reversion_rsi_bb", "resolution": "60"},
+        {"strategy": "breakout_atr", "resolution": "60"}
+      ]
+    }
+  },
+  "portfolios": [
+    {"name": "loose-long", "profile": "loose", "direction": "long", "version": 1, "initial_capital_rial": 100000000},
+    {"name": "loose-both", "profile": "loose", "direction": "both", "version": 1, "initial_capital_rial": 100000000},
+    {"name": "strict-long", "profile": "strict", "direction": "long", "version": 1, "initial_capital_rial": 100000000},
+    {"name": "strict-both", "profile": "strict", "direction": "both", "version": 1, "initial_capital_rial": 100000000},
+    {"name": "tuned-long", "profile": "tuned", "direction": "long", "version": 1, "initial_capital_rial": 100000000},
+    {"name": "tuned-both", "profile": "tuned", "direction": "both", "version": 1, "initial_capital_rial": 100000000}
+  ]
+}
