@@ -6,10 +6,13 @@ import pytest
 from nobitex_bot.config import Settings
 from nobitex_bot.dashboard.app import create_app
 from nobitex_bot.risk.config_store import load_risk_config
+from tests.test_dashboard_auth import enrol
 
 
 @pytest.fixture
-def app_client(tmp_path):
+def app_client(tmp_path, monkeypatch):
+    monkeypatch.setenv("NOBITEX_DASHBOARD_USER", "kianosh")
+    monkeypatch.setenv("NOBITEX_FLASK_SECRET_KEY", "test-key-not-random")
     settings = Settings(
         env="testnet", api_base_url="https://x", testnet_base_url="https://y", api_token="", data_dir=tmp_path, log_level="INFO"
     )
@@ -27,19 +30,25 @@ def test_index_redirects_to_login_when_not_authenticated(app_client):
 
 def test_first_login_creates_master_password_and_grants_access(app_client):
     client, _ = app_client
-    response = client.post("/login", data={"password": "my-master-pw"}, follow_redirects=True)
+    enrol(client, password="my-master-pw")
+
+    response = client.get("/", follow_redirects=True)
+
     assert response.status_code == 200
     assert "وضعیت".encode() in response.data
 
 
 def test_second_login_with_wrong_password_rejected(app_client):
-    client, settings = app_client
-    client.post("/login", data={"password": "correct-pw"})
+    client, _ = app_client
+    enrol(client, password="correct-pw")
     client.get("/logout")
 
-    response = client.post("/login", data={"password": "wrong-pw"})
+    response = client.post("/login", data={"username": "kianosh", "password": "wrong-pw"})
+
     assert response.status_code == 200
     assert "اشتباه".encode() in response.data
+    # پیام خطا به‌تنهایی کافی نیست — باید واقعاً پشت در بمونه
+    assert client.get("/").status_code == 302
 
 
 def test_settings_page_requires_login(app_client):
@@ -50,7 +59,7 @@ def test_settings_page_requires_login(app_client):
 
 def test_save_secret_via_settings_form(app_client):
     client, _ = app_client
-    client.post("/login", data={"password": "pw"})
+    enrol(client)
 
     response = client.post(
         "/settings", data={"form_type": "secrets", "nobitex_api_token": "tok123"}, follow_redirects=True
@@ -62,7 +71,7 @@ def test_save_secret_via_settings_form(app_client):
 
 def test_save_risk_config_via_settings_form(app_client):
     client, settings = app_client
-    client.post("/login", data={"password": "pw"})
+    enrol(client)
 
     response = client.post(
         "/settings",
@@ -87,7 +96,7 @@ def test_save_risk_config_via_settings_form(app_client):
 
 def test_trades_page_renders_empty_state(app_client):
     client, _ = app_client
-    client.post("/login", data={"password": "pw"})
+    enrol(client)
 
     response = client.get("/trades")
 
@@ -118,7 +127,7 @@ def test_index_shows_open_position_symbols_and_watchlist(app_client):
 
     write_status_snapshot(settings.data_dir / "status.json", [track], watchlist=[scan_result])
 
-    client.post("/login", data={"password": "pw"})
+    enrol(client)
     response = client.get("/")
 
     assert response.status_code == 200
@@ -143,7 +152,7 @@ def test_index_shows_data_coverage_panel(app_client):
     storage.upsert_reference_candles("coinbase", "BTC-USD", "60", [candle])
     storage.close()
 
-    client.post("/login", data={"password": "pw"})
+    enrol(client)
     response = client.get("/")
 
     assert response.status_code == 200

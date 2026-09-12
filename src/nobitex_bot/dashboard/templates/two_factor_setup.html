@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}فعال‌سازی ورود دومرحله‌ای{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="card login-card twofa-card">
+    <div class="brand-lg">
+      <div class="logo">🔐</div>
+    </div>
+    <h2>ورود دومرحله‌ای رو فعال کن</h2>
+    <p class="subtitle">این یه بار انجام می‌شه. بعدش برای هر ورود، علاوه بر رمز، یه کد ۶ رقمی از گوشیت لازم داری.</p>
+
+    <ol class="twofa-steps">
+      <li>
+        <strong>یک اپ احرازهویت نصب کن</strong>
+        <span class="hint">Google Authenticator، Authy، یا هر اپ سازگار با TOTP</span>
+      </li>
+      <li>
+        <strong>این کلید رو دستی وارد کن</strong>
+        <span class="hint">یا بارکد پایین رو اسکن کن</span>
+        <code class="totp-secret">{{ secret }}</code>
+      </li>
+      <li>
+        <strong>کد ۶ رقمی رو این‌جا بزن تا تأیید بشه</strong>
+      </li>
+    </ol>
+
+    <div class="qr-box">{{ qr_svg | safe }}</div>
+
+    <div class="callout callout-danger">
+      ⚠️ <strong>کدهای بازیابی — همین الان یادداشتشون کن.</strong>
+      این کدها فقط همین یک بار نشون داده می‌شن. اگه گوشیت گم بشه یا اپ پاک بشه،
+      تنها راه ورود به داشبورد همین‌هان. هر کد فقط یک بار کار می‌کنه.
+    </div>
+
+    <ul class="recovery-codes">
+      {% for code in recovery_codes %}<li>{{ code }}</li>{% endfor %}
+    </ul>
+
+    <form method="post">
+      <label>کد ۶ رقمی از اپ</label>
+      <input type="text" name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+             autocomplete="one-time-code" placeholder="۱۲۳۴۵۶" autofocus required>
+      <button type="submit">تأیید و فعال‌سازی</button>
+    </form>
+  </div>
+</div>
+
+<style>
+  .twofa-card { max-width: 460px; }
+  .twofa-steps { margin: 20px 0; padding-right: 20px; color: var(--text-muted); font-size: 14px; }
+  .twofa-steps li { margin-bottom: 14px; }
+  .twofa-steps strong { color: var(--text); display: block; font-weight: 600; }
+  .twofa-steps .hint { font-size: 12.5px; color: var(--text-faint); }
+  .totp-secret {
+    display: block; margin-top: 8px; padding: 10px 12px;
+    background: var(--bg-elevated-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    font-family: ui-monospace, monospace; font-size: 13px; letter-spacing: 1.5px;
+    word-break: break-all; direction: ltr; text-align: center; color: var(--accent);
+  }
+  .qr-box {
+    background: #fff; padding: 14px; border-radius: var(--radius);
+    width: fit-content; margin: 0 auto 20px;
+  }
+  .qr-box svg { display: block; width: 168px; height: 168px; }
+  .callout-danger { background: var(--danger-bg); border-color: var(--danger); }
+  .recovery-codes {
+    list-style: none; padding: 14px; margin: 14px 0 20px;
+    background: var(--bg-elevated-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    font-family: ui-monospace, monospace; font-size: 13px; direction: ltr; text-align: center;
+  }
+</style>
+{% endblock %}

@@ -9,3 +9,7 @@ pandas-ta-classic>=0.6
 # فاز ۸ — امنیت (رمزنگاری کلید API) و داشبورد وب سبک
 cryptography>=42
 flask>=3.0,<4
+
+# فاز ۹ — ورود دومرحله‌ای داشبورد (TOTP سازگار با Google Authenticator)
+pyotp>=2.9,<3
+qrcode>=7.4,<9

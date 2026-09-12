@@ -7,13 +7,15 @@
       <div class="logo">🤖</div>
     </div>
     <h2>ورود به داشبورد</h2>
-    <p class="subtitle">با «رمز اصلی» وارد شو تا وضعیت ربات و تنظیماتش رو ببینی</p>
+    <p class="subtitle">با نام کاربری و «رمز اصلی» وارد شو تا وضعیت ربات و تنظیماتش رو ببینی</p>
     {% if is_first_run %}
     <div class="callout">⚠️ اولین باره — هر رمزی که الان وارد کنی، «رمز اصلی» تو برای رمزنگاری کلیدها می‌شه. این رمز رو یه‌جای امن یادداشت کن؛ گم بشه، باید همه‌چیز رو دوباره وارد کنی.</div>
     {% endif %}
     <form method="post">
+      <label>نام کاربری</label>
+      <input type="text" name="username" autocomplete="username" autofocus required>
       <label>رمز اصلی</label>
-      <input type="password" name="password" autofocus required>
+      <input type="password" name="password" autocomplete="current-password" required>
       <button type="submit">ورود</button>
     </form>
   </div>

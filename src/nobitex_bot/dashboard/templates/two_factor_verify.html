@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}تأیید دومرحله‌ای{% endblock %}
+{% block content %}
+<div class="login-wrap">
+  <div class="card login-card">
+    <div class="brand-lg">
+      <div class="logo">🔑</div>
+    </div>
+    <h2>کد دومرحله‌ای</h2>
+    <p class="subtitle">کد ۶ رقمی رو از اپ احرازهویت بخون و این‌جا وارد کن</p>
+
+    <form method="post">
+      <label>کد ۶ رقمی</label>
+      <input type="text" name="code" inputmode="numeric" maxlength="9"
+             autocomplete="one-time-code" placeholder="۱۲۳۴۵۶" autofocus required>
+      <button type="submit">تأیید</button>
+    </form>
+
+    <p class="subtitle twofa-fallback">
+      به گوشیت دسترسی نداری؟ یکی از <strong>کدهای بازیابی</strong>ات رو توی همین کادر وارد کن.
+      هر کد فقط یک بار کار می‌کنه.
+    </p>
+    <p class="subtitle"><a href="{{ url_for('logout') }}">برگشت به صفحهٔ ورود</a></p>
+  </div>
+</div>
+
+<style>
+  .twofa-fallback { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; }
+</style>
+{% endblock %}
