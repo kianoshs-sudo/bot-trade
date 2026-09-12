@@ -1,0 +1,175 @@
+{
+  "updated_at": 1789249966,
+  "cycle_duration_seconds": 428.2186644077301,
+  "tracks": [
+    {
+      "label": "trend_momentum_volume@60",
+      "strategy_name": "trend_momentum_volume",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    },
+    {
+      "label": "mean_reversion_rsi_bb@60",
+      "strategy_name": "mean_reversion_rsi_bb",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    },
+    {
+      "label": "breakout_atr@60",
+      "strategy_name": "breakout_atr",
+      "resolution": "60",
+      "capital": "50000000",
+      "open_positions": 0,
+      "open_position_symbols": [],
+      "daily_loss_halted": false
+    }
+  ],
+  "watchlist": [
+    {
+      "symbol": "METIRT",
+      "last_price": "526020",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.9291006275125303
+    },
+    {
+      "symbol": "RAYIRT",
+      "last_price": "3548370",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.8724134471290014
+    },
+    {
+      "symbol": "PUMPIRT",
+      "last_price": "8800",
+      "signal_direction": "bullish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7839607373472312
+    },
+    {
+      "symbol": "ZECIRT",
+      "last_price": "2603800000",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7660292037152636
+    },
+    {
+      "symbol": "CHZIRT",
+      "last_price": "33220",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7481371064014508
+    },
+    {
+      "symbol": "DOTIRT",
+      "last_price": "2370010",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7202046015170034
+    },
+    {
+      "symbol": "BICOIRT",
+      "last_price": "46490",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7142066899601489
+    },
+    {
+      "symbol": "BANKIRT",
+      "last_price": "65300",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7119912880512792
+    },
+    {
+      "symbol": "USDTIRT",
+      "last_price": "2314030",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7098514180922033
+    },
+    {
+      "symbol": "DEXEIRT",
+      "last_price": "4360050",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.7012326526208414
+    },
+    {
+      "symbol": "ETHIRT",
+      "last_price": "5850000000",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6927895712486631
+    },
+    {
+      "symbol": "TRXIRT",
+      "last_price": "791150",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6909428353782683
+    },
+    {
+      "symbol": "GRAMIRT",
+      "last_price": "3207000",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6894276016154547
+    },
+    {
+      "symbol": "1K_SHIBIRT",
+      "last_price": "12171",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6838363487576528
+    },
+    {
+      "symbol": "XRPIRT",
+      "last_price": "3158260",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6805065013263104
+    },
+    {
+      "symbol": "SOLIRT",
+      "last_price": "234780000",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.680068674016626
+    },
+    {
+      "symbol": "BNBIRT",
+      "last_price": "1682803990",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6799784908042523
+    },
+    {
+      "symbol": "DOGEIRT",
+      "last_price": "195970",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.6797256844624284
+    },
+    {
+      "symbol": "BTCIRT",
+      "last_price": "178649990020",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.678952889770706
+    },
+    {
+      "symbol": "HMSTRIRT",
+      "last_price": "374.13",
+      "signal_direction": "bearish",
+      "signal_strength": 1.0,
+      "composite_score": 0.677669216549981
+    }
+  ]
+}
