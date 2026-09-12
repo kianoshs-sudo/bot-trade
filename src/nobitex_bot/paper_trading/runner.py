@@ -72,6 +72,9 @@ logger = logging.getLogger(__name__)
 # نوسان آنی هم قابل اجرا بمونه (طبق مستندات رسمی نوبیتکس دربارهٔ شرط قیمت OCO).
 STOP_LIMIT_BUFFER_PCT = Decimal("0.005")
 
+# تعداد کندلی که برای ساخت سیگنال گرفته می‌شود (هم‌اندازهٔ lookback پیش‌فرض اسکنر)
+SIGNAL_LOOKBACK_CANDLES = 200
+
 
 def _opposite(direction: str) -> str:
     return "sell" if direction == "buy" else "buy"
@@ -392,7 +395,10 @@ class PaperTradingRunner:
         """``None`` یعنی این منبع سیگنال قابل‌قبولی نداد و منبع بعدی امتحان شود؛
         ``True``/``False`` یعنی تصمیم قطعی شد (باز شد، یا مدیریت ریسک/تایید رد کرد)."""
         now = int(time.time())
-        span_seconds = 200 * 3600
+        # بر حسب تعداد کندل، نه ساعت: ۲۰۰ ساعت در تایم‌فریم ۵ دقیقه ۲۴۰۰ کندل بود — هم برای
+        # اندیکاتورها بی‌فایده و هم بزرگ‌تر از سری‌ای که فید زنده نگه می‌دارد، که یعنی
+        # برگشت به REST در هر چرخه. برای تایم‌فریم ۶۰ همان ۲۰۰ ساعت قبلی است.
+        span_seconds = SIGNAL_LOOKBACK_CANDLES * RESOLUTION_SECONDS[source.resolution]
         cache_key = (symbol, source.resolution)
         if cache_key not in self._cycle_frames:
             candles = self.market_data.get_ohlc_history(symbol, source.resolution, now - span_seconds, now)

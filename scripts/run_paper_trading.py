@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from nobitex_bot.analysis.scanner import MarketScanner
 from nobitex_bot.config import get_settings
+from nobitex_bot.data.live_feed import LiveFeed
 from nobitex_bot.data.market_data import MarketDataService
 from nobitex_bot.data.reference_market import ReferenceMarketCollector
 from nobitex_bot.data.storage import Storage
@@ -74,6 +75,11 @@ def parse_args() -> argparse.Namespace:
         "برای پاسخ به «سرمایه روی این سیگنال‌ها چه می‌شه» به صرافی نیازی نیست — و بدون این فلگ، "
         "ثبت معاملهٔ کاغذی به موفقیت سفارش گره خورده: وقتی صرافی رد می‌کنه (مثلاً کلید API نامعتبر)، "
         "هیچ معامله‌ای حتی مجازی ثبت نمی‌شه و منحنی سرمایه هیچ‌وقت شکل نمی‌گیره",
+    )
+    parser.add_argument(
+        "--live-feed", action="store_true",
+        help="قیمت، اردربوک و کندل را از وب‌سوکت نوبیتکس بخوان (هر سری کندل فقط یک‌بار با REST پر می‌شود). "
+        "بدون این، سقف ۲۰ درخواست کندل در دقیقه چرخه را چند دقیقه طول می‌دهد. با قطع وب‌سوکت خودکار به REST برمی‌گردد",
     )
     parser.add_argument(
         "--portfolios", type=Path, default=None,
@@ -170,7 +176,11 @@ def main() -> None:
     trading_client = NobitexClient(settings=settings)  # طبق NOBITEX_ENV (باید testnet باشه)
 
     storage = Storage(settings.data_dir / "paper_trading.sqlite")
-    market_data = MarketDataService(client=market_client, storage=storage)
+    live_feed = None
+    if args.live_feed:
+        live_feed = LiveFeed()
+        live_feed.start()
+    market_data = MarketDataService(client=market_client, storage=storage, live_feed=live_feed)
     scanner = MarketScanner(
         market_data=market_data,
         resolution=args.scan_resolution,

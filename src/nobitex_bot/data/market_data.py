@@ -3,6 +3,9 @@
 ماژول‌های بالاتر (اسکنر بازار، بک‌تست، استراتژی) باید از این سرویس
 استفاده کنن، نه مستقیم از NobitexClient — تا کش‌گذاری و ذخیره‌سازی به‌طور
 یکنواخت همه‌جا اعمال بشه.
+
+اگر ``live_feed`` داده شود، آمار بازار، اردربوک و کندل اول از وب‌سوکت خوانده
+می‌شوند و فقط وقتی فید دادهٔ تازه و پیوسته ندارد به REST برمی‌گردد.
 """
 
 from __future__ import annotations
@@ -11,8 +14,10 @@ import logging
 import time
 
 from nobitex_bot.data.cache import TTLCache
+from nobitex_bot.data.live_feed import LiveFeed
 from nobitex_bot.data.storage import Storage
 from nobitex_bot.exchange.client import NobitexClient
+from nobitex_bot.exchange.endpoints import RESOLUTION_SECONDS
 from nobitex_bot.exchange.models import Candle, MarketStat, OrderBook
 
 logger = logging.getLogger(__name__)
@@ -24,13 +29,19 @@ class MarketDataService:
         client: NobitexClient | None = None,
         storage: Storage | None = None,
         cache: TTLCache | None = None,
+        live_feed: LiveFeed | None = None,
     ) -> None:
         self.client = client or NobitexClient()
         self.storage = storage
         self.cache = cache or TTLCache(default_ttl_seconds=2.0)
+        self.live_feed = live_feed
 
     def get_all_market_stats(self, use_cache: bool = True) -> dict[str, MarketStat]:
         """آمار همهٔ بازارها — بدون فیلتر ارز، برای کاهش تعداد درخواست موقع اسکن."""
+        if self.live_feed is not None:
+            live = self.live_feed.market_stats()
+            if live is not None:
+                return live
         if not use_cache:
             return self.client.get_market_stats()
         return self.cache.get_or_set("market_stats:all", self.client.get_market_stats)
@@ -41,12 +52,30 @@ class MarketDataService:
             return self.client.get_orderbook("all")
         return self.cache.get_or_set("orderbook:all", lambda: self.client.get_orderbook("all"))
 
+    def get_orderbook(self, symbol: str) -> OrderBook:
+        """اردربوک یک نماد (فرمت udf، مثل ``BTCIRT``): از فید اگر تازه باشد، وگرنه REST."""
+        if self.live_feed is not None:
+            self.live_feed.watch_orderbook(symbol)
+            live = self.live_feed.orderbook(symbol)
+            if live is not None:
+                return live
+        return self.client.get_orderbook(symbol)
+
     def get_ohlc_history(
         self, symbol: str, resolution: str, from_ts: int, to_ts: int, persist: bool = True
     ) -> list[Candle]:
+        if self.live_feed is not None:
+            self.live_feed.watch_candles(symbol, resolution)
+            live = self.live_feed.get_candles(symbol, resolution)
+            # فقط وقتی سری فید کل بازهٔ درخواستی را پوشش دهد؛ وگرنه اندیکاتور روی تاریخچهٔ کوتاه‌تر حساب می‌شد
+            if live and live[0].timestamp <= from_ts + RESOLUTION_SECONDS.get(resolution, 0):
+                return [c for c in live if from_ts <= c.timestamp <= to_ts]
+
         candles = self.client.get_ohlc_history(symbol, resolution, from_ts, to_ts)
         if persist and self.storage is not None and candles:
             self.storage.upsert_candles(symbol, resolution, candles)
+        if self.live_feed is not None and candles:
+            self.live_feed.seed_candles(symbol, resolution, candles)
         return candles
 
     def get_ohlc_history_chunked(
@@ -70,7 +99,10 @@ class MarketDataService:
             if not first:
                 time.sleep(sleep_between_requests)
             first = False
-            candles = self.get_ohlc_history(symbol, resolution, cursor, chunk_end, persist=persist)
+            # بازهٔ طولانی تاریخی هیچ‌وقت از فید زنده خوانده نمی‌شود
+            candles = self.client.get_ohlc_history(symbol, resolution, cursor, chunk_end)
+            if persist and self.storage is not None and candles:
+                self.storage.upsert_candles(symbol, resolution, candles)
             all_candles.extend(candles)
             cursor = chunk_end
         return all_candles
